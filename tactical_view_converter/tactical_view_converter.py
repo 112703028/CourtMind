@@ -115,18 +115,6 @@ class TacticalViewConverter:
         return keypoints_list
 
     def transform_players_to_tactical_view(self, keypoints_list, player_tracks):
-        """
-        Transform player positions from video frame coordinates to tactical view coordinates.
-        
-        Args:
-            keypoints_list (list): List of detected court keypoints for each frame.
-            player_tracks (list): List of dictionaries containing player tracking information for each frame,
-                where each dictionary maps player IDs to their bounding box coordinates.
-        
-        Returns:
-            list: List of dictionaries where each dictionary maps player IDs to their (x, y) positions
-                in the tactical view coordinate system. The list index corresponds to the frame number.
-        """
         tactical_player_positions = []
         
         for frame_idx, (frame_keypoints, frame_tracks) in enumerate(zip(keypoints_list, player_tracks)):

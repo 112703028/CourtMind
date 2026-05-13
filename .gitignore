@@ -2,3 +2,21 @@ __pycache__/
 *.pt
 *.avi
 *.pkl
+
+# 大型資料夾
+Henu-Data/
+ACA-Net/
+mmaction2/
+nba-movement-data/
+input_videos/
+screen_data/
+screen_frames/
+output_videos/
+output_track_viz/
+output_manual/
+output_10p/
+models/
+.vscode/
+nba_data_pipeline/checkpoints/
+nba_data_pipeline/output_manual/
+nba_data_pipeline/output_track_viz/

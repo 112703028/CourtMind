@@ -1,0 +1,488 @@
+{
+  "11": {
+    "screener": 4,
+    "defender": 9,
+    "handler": 9,
+    "confident": true
+  },
+  "12": {
+    "screener": 3,
+    "defender": 2,
+    "handler": 1,
+    "confident": true
+  },
+  "13": {
+    "screener": 2,
+    "defender": 18,
+    "handler": 1,
+    "confident": true
+  },
+  "14": {
+    "screener": 52,
+    "defender": 8,
+    "handler": 71,
+    "confident": true
+  },
+  "15": {
+    "screener": 9,
+    "defender": 9,
+    "handler": 6,
+    "confident": true
+  },
+  "16": {
+    "screener": 6,
+    "defender": 10,
+    "handler": 10,
+    "confident": true
+  },
+  "17": {
+    "screener": 1,
+    "defender": 13,
+    "handler": 6,
+    "confident": true
+  },
+  "18": {
+    "screener": 11,
+    "defender": 1,
+    "handler": 10,
+    "confident": true
+  },
+  "19": {
+    "screener": 28,
+    "defender": 11,
+    "handler": 3,
+    "confident": true
+  },
+  "20": {
+    "screener": 1,
+    "defender": 3,
+    "handler": 10,
+    "confident": true
+  },
+  "21": {
+    "screener": 3,
+    "defender": null,
+    "handler": 7,
+    "confident": true
+  },
+  "22": {
+    "screener": 1,
+    "defender": 2,
+    "handler": 5,
+    "confident": true
+  },
+  "23": {
+    "screener": 1,
+    "defender": null,
+    "handler": 7,
+    "confident": true
+  },
+  "24": {
+    "screener": 8,
+    "defender": 2,
+    "handler": 4,
+    "confident": true
+  },
+  "25": {
+    "screener": 2,
+    "defender": 3,
+    "handler": 16,
+    "confident": true
+  },
+  "26": {
+    "screener": 2,
+    "defender": null,
+    "handler": 8,
+    "confident": true
+  },
+  "27": {
+    "screener": 10,
+    "defender": 3,
+    "handler": 5,
+    "confident": true
+  },
+  "28": {
+    "screener": 91,
+    "defender": null,
+    "handler": 2,
+    "confident": true
+  },
+  "29": {
+    "screener": 4,
+    "defender": null,
+    "handler": 6,
+    "confident": true
+  },
+  "30": {
+    "screener": 4,
+    "defender": null,
+    "handler": 27,
+    "confident": true
+  },
+  "31": {
+    "screener": 42,
+    "defender": null,
+    "handler": 8,
+    "confident": true
+  },
+  "32": {
+    "screener": 10,
+    "defender": null,
+    "handler": 6,
+    "confident": true
+  },
+  "33": {
+    "screener": 4,
+    "defender": null,
+    "handler": 4,
+    "confident": true
+  },
+  "34": {
+    "screener": 4,
+    "defender": 8,
+    "handler": 6,
+    "confident": true
+  },
+  "35": {
+    "screener": 4,
+    "defender": null,
+    "handler": 8,
+    "confident": true
+  },
+  "36": {
+    "screener": 7,
+    "defender": 4,
+    "handler": 1,
+    "confident": true
+  },
+  "37": {
+    "screener": 8,
+    "defender": null,
+    "handler": 7,
+    "confident": true
+  },
+  "38": {
+    "screener": 10,
+    "defender": null,
+    "handler": 16,
+    "confident": true
+  },
+  "39": {
+    "screener": 35,
+    "defender": null,
+    "handler": 8,
+    "confident": true
+  },
+  "40": {
+    "screener": 3,
+    "defender": null,
+    "handler": 11,
+    "confident": true
+  },
+  "41": {
+    "screener": 6,
+    "defender": null,
+    "handler": 5,
+    "confident": true
+  },
+  "42": {
+    "screener": 2,
+    "defender": null,
+    "handler": 23,
+    "confident": true
+  },
+  "43": {
+    "screener": 3,
+    "defender": null,
+    "handler": 6,
+    "confident": true
+  },
+  "44": {
+    "screener": 1,
+    "defender": null,
+    "handler": 141,
+    "confident": true
+  },
+  "45": {
+    "screener": 16,
+    "defender": null,
+    "handler": 2,
+    "confident": true
+  },
+  "46": {
+    "screener": 16,
+    "defender": null,
+    "handler": 1,
+    "confident": true
+  },
+  "47": {
+    "screener": 19,
+    "defender": null,
+    "handler": 15,
+    "confident": true
+  },
+  "48": {
+    "screener": 9,
+    "defender": null,
+    "handler": 8,
+    "confident": true
+  },
+  "49": {
+    "screener": 2,
+    "defender": null,
+    "handler": 5,
+    "confident": true
+  },
+  "50": {
+    "screener": 6,
+    "defender": null,
+    "handler": 9,
+    "confident": true
+  },
+  "51": {
+    "screener": null,
+    "defender": null,
+    "handler": null,
+    "confident": false
+  },
+  "52": {
+    "screener": 1,
+    "defender": null,
+    "handler": 10,
+    "confident": true
+  },
+  "53": {
+    "screener": 2,
+    "defender": 7,
+    "handler": 3,
+    "confident": true
+  },
+  "54": {
+    "screener": 12,
+    "defender": 12,
+    "handler": 1,
+    "confident": true
+  },
+  "55": {
+    "screener": 2,
+    "defender": null,
+    "handler": 6,
+    "confident": true
+  },
+  "56": {
+    "screener": 6,
+    "defender": null,
+    "handler": 5,
+    "confident": true
+  },
+  "57": {
+    "screener": 24,
+    "defender": 3,
+    "handler": 5,
+    "confident": true
+  },
+  "58": {
+    "screener": 5,
+    "defender": 3,
+    "handler": 4,
+    "confident": true
+  },
+  "59": {
+    "screener": 13,
+    "defender": null,
+    "handler": 10,
+    "confident": true
+  },
+  "60": {
+    "screener": 12,
+    "defender": 1,
+    "handler": 12,
+    "confident": true
+  },
+  "61": {
+    "screener": 3,
+    "defender": null,
+    "handler": 5,
+    "confident": true
+  },
+  "62": {
+    "screener": 11,
+    "defender": 4,
+    "handler": 7,
+    "confident": true
+  },
+  "63": {
+    "screener": 1,
+    "defender": null,
+    "handler": 30,
+    "confident": true
+  },
+  "64": {
+    "screener": 2,
+    "defender": null,
+    "handler": 27,
+    "confident": true
+  },
+  "65": {
+    "screener": 65,
+    "defender": null,
+    "handler": 11,
+    "confident": true
+  },
+  "66": {
+    "screener": 4,
+    "defender": 5,
+    "handler": 28,
+    "confident": true
+  },
+  "67": {
+    "screener": 20,
+    "defender": 8,
+    "handler": 6,
+    "confident": true
+  },
+  "68": {
+    "screener": 4,
+    "defender": 6,
+    "handler": 8,
+    "confident": true
+  },
+  "69": {
+    "screener": 3,
+    "defender": 8,
+    "handler": 10,
+    "confident": true
+  },
+  "70": {
+    "screener": 4,
+    "defender": 4,
+    "handler": 6,
+    "confident": true
+  },
+  "71": {
+    "screener": 7,
+    "defender": 9,
+    "handler": 4,
+    "confident": true
+  },
+  "72": {
+    "screener": 2,
+    "defender": 12,
+    "handler": 8,
+    "confident": true
+  },
+  "73": {
+    "screener": 7,
+    "defender": 7,
+    "handler": 5,
+    "confident": true
+  },
+  "74": {
+    "screener": 5,
+    "defender": 5,
+    "handler": 6,
+    "confident": true
+  },
+  "75": {
+    "screener": 4,
+    "defender": 1,
+    "handler": 3,
+    "confident": true
+  },
+  "76": {
+    "screener": 8,
+    "defender": 5,
+    "handler": 7,
+    "confident": true
+  },
+  "77": {
+    "screener": 30,
+    "defender": 22,
+    "handler": 1,
+    "confident": true
+  },
+  "78": {
+    "screener": 16,
+    "defender": 16,
+    "handler": 16,
+    "confident": true
+  },
+  "79": {
+    "screener": 8,
+    "defender": 1,
+    "handler": 7,
+    "confident": true
+  },
+  "80": {
+    "screener": 8,
+    "defender": 8,
+    "handler": 4,
+    "confident": true
+  },
+  "81": {
+    "screener": 6,
+    "defender": 28,
+    "handler": 2,
+    "confident": true
+  },
+  "82": {
+    "screener": 17,
+    "defender": 2,
+    "handler": 6,
+    "confident": true
+  },
+  "83": {
+    "screener": 3,
+    "defender": 1,
+    "handler": 1,
+    "confident": true
+  },
+  "84": {
+    "screener": 10,
+    "defender": 8,
+    "handler": 10,
+    "confident": true
+  },
+  "85": {
+    "screener": null,
+    "defender": null,
+    "handler": null,
+    "confident": false
+  },
+  "86": {
+    "screener": 13,
+    "defender": 13,
+    "handler": 3,
+    "confident": true
+  },
+  "87": {
+    "screener": 5,
+    "defender": 6,
+    "handler": 8,
+    "confident": true
+  },
+  "88": {
+    "screener": 28,
+    "defender": 3,
+    "handler": 5,
+    "confident": true
+  },
+  "89": {
+    "screener": 44,
+    "defender": 3,
+    "handler": 1,
+    "confident": true
+  },
+  "90": {
+    "screener": 11,
+    "defender": 2,
+    "handler": 2,
+    "confident": true
+  },
+  "91": {
+    "screener": 82,
+    "defender": 2,
+    "handler": 5,
+    "confident": true
+  }
+}

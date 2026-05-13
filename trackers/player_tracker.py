@@ -80,5 +80,7 @@ class PlayerTracker:
                 if cls_id == cls_names_inv['Player']:
                     tracks[frame_num][track_id] = {"bbox":bbox}
         
-        save_stub(stub_path,tracks)
+        if stub_path is not None:
+            save_stub(stub_path, tracks)
+            
         return tracks

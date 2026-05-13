@@ -6,6 +6,7 @@ from team_assigner import TeamAssigner
 from court_keypoint_detector import CourtKeypointDetector
 from ball_aquisition import BallAquisitionDetector
 from pass_and_interception_detector import PassAndInterceptionDetector
+from ball_screen_detector import BallScreenDetector
 from tactical_view_converter import TacticalViewConverter
 from speed_and_distance_calculator import SpeedAndDistanceCalculator
 from drawers import (
@@ -36,33 +37,39 @@ def parse_args():
     return parser.parse_args()
 
 def main():
-    args = parse_args()
-    
+    #args = parse_args()
+
     # Read Video
-    video_frames = read_video(args.input_video)
+    video_frames = read_video("input_videos/video_3.mp4")
+    if len(video_frames) == 0:
+        print("錯誤：找不到影片或影片無法讀取，請檢查路徑！")
+        return 
     
     ## Initialize Tracker
-    player_tracker = PlayerTracker(PLAYER_DETECTOR_PATH)
-    ball_tracker = BallTracker(BALL_DETECTOR_PATH)
+    player_tracker = PlayerTracker("models/player_detector.pt")
+    ball_tracker = BallTracker("models/ball_detector_model.pt")
 
     ## Initialize Keypoint Detector
-    court_keypoint_detector = CourtKeypointDetector(COURT_KEYPOINT_DETECTOR_PATH)
+    court_keypoint_detector = CourtKeypointDetector("models/court_keypoint_detector.pt")
 
     # Run Detectors
     player_tracks = player_tracker.get_object_tracks(video_frames,
                                        read_from_stub=True,
-                                       stub_path=os.path.join(args.stub_path, 'player_track_stubs.pkl')
-                                      )
+                                       stub_path="stubs/player_tracks_stub.pkl"
+                                       )
+                                      
     
     ball_tracks = ball_tracker.get_object_tracks(video_frames,
                                                  read_from_stub=True,
-                                                 stub_path=os.path.join(args.stub_path, 'ball_track_stubs.pkl')
+                                                 stub_path="stubs/ball_tracks_stub.pkl"
                                                 )
+                                                
     ## Run KeyPoint Extractor
     court_keypoints_per_frame = court_keypoint_detector.get_court_keypoints(video_frames,
                                                                     read_from_stub=True,
-                                                                    stub_path=os.path.join(args.stub_path, 'court_key_points_stub.pkl')
+                                                                    stub_path="stubs/court_key_points_stub.pkl"
                                                                     )
+                                                                    
 
     # Remove Wrong Ball Detections
     ball_tracks = ball_tracker.remove_wrong_detections(ball_tracks)
@@ -75,12 +82,23 @@ def main():
     player_assignment = team_assigner.get_player_teams_across_frames(video_frames,
                                                                     player_tracks,
                                                                     read_from_stub=True,
-                                                                    stub_path=os.path.join(args.stub_path, 'player_assignment_stub.pkl')
+                                                                    stub_path="stubs/player_assignment_stub.pkl"
                                                                     )
 
     # Ball Acquisition
     ball_aquisition_detector = BallAquisitionDetector()
     ball_aquisition = ball_aquisition_detector.detect_ball_possession(player_tracks,ball_tracks)
+
+    # Detect Ball Screens
+    ball_screen_detector = BallScreenDetector(
+        proximity_threshold=120,     # pixels — tune based on your camera/resolution
+        min_screen_frames=8,         # ~0.27 sec at 30fps before confirming
+        screener_stillness_window=6,
+        stillness_velocity_threshold=8.0
+    )
+    screen_events = ball_screen_detector.detect_screens(
+        player_tracks, player_assignment, ball_aquisition
+    )
 
     # Detect Passes
     pass_and_interception_detector = PassAndInterceptionDetector()
@@ -158,7 +176,7 @@ def main():
                                                     )
 
     # Save video
-    save_video(output_video_frames, args.output_video)
+    save_video(output_video_frames, "output_videos/output_video.avi")
 
 if __name__ == '__main__':
     main()
