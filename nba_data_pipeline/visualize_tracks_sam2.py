@@ -86,9 +86,11 @@ def run_sam2_tracks(clip_dir: Path, frames, player_model, predictor) -> list:
                 predictor.add_new_points_or_box(
                     inference_state, frame_idx=0, obj_id=obj_id,
                     box=xyxy.astype(np.float32))
+                
         raw_tracks = [{} for _ in frames]
         for obj_id, xyxy in zip(obj_ids, boxes):
             raw_tracks[0][obj_id] = xyxy.tolist()
+        
         with torch.inference_mode(), torch.autocast(DEVICE, dtype=torch.bfloat16):
             for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state):
                 for obj_id, mask in zip(object_ids, masks):
@@ -98,6 +100,7 @@ def run_sam2_tracks(clip_dir: Path, frames, player_model, predictor) -> list:
                         raw_tracks[frame_idx][int(obj_id)] = [
                             float(xs.min()), float(ys.min()),
                             float(xs.max()), float(ys.max())]
+                        
         predictor.reset_state(inference_state)
         return raw_tracks
     finally:
@@ -280,6 +283,7 @@ def main():
         # SAM2 追蹤（標準 API）
         try:
             raw_tracks = run_sam2_tracks(clip_dir, frames, player_model, predictor)
+        
         except Exception as e:
             print(f"  Clip {clip_id}: SAM2 failed: {e}, skipping")
             continue

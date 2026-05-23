@@ -1,137 +1,142 @@
-from PIL import Image
-import cv2
-from transformers import CLIPProcessor, CLIPModel
+import sys
 
-import sys 
 sys.path.append('../')
 from utils import read_stub, save_stub
 
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    from sports import TeamClassifier
+except ImportError:
+    TeamClassifier = None
+
+
 class TeamAssigner:
     """
-    A class that assigns players to teams based on their jersey colors using visual analysis.
+    用 sports.TeamClassifier（SigLIP + UMAP + K-means）做無監督分隊。
 
-    The class uses a pre-trained vision model to classify players into teams based on their
-    appearance. It maintains a consistent team assignment for each player across frames.
+    不需要 prompt（不用知道球衣顏色），自己從影片整體 visual pattern 學兩隊。
 
-    Attributes:
-        team_colors (dict): Dictionary storing team color information.
-        player_team_dict (dict): Dictionary mapping player IDs to their team assignments.
-        team_1_class_name (str): Description of Team 1's jersey appearance.
-        team_2_class_name (str): Description of Team 2's jersey appearance.
+    Args:
+        fit_stride (int): 每幾幀取一次 crops 來 fit classifier，預設 30
+        crop_scale (float): bbox 縮小比例（0.4 = 取中央 40% 球衣區域），預設 0.4
+        device (str): 'cuda' / 'cpu' / None（自動偵測）
     """
-    def __init__(self,
-                 team_1_class_name= "white shirt",
-                 team_2_class_name= "red shirt",
-                 ):
+    def __init__(self, fit_stride=30, crop_scale=0.4, device=None):
+        if TeamClassifier is None:
+            raise ImportError(
+                "sports.TeamClassifier 不可用。"
+                "pip install git+https://github.com/roboflow/sports.git@feat/basketball"
+            )
+
+        self.fit_stride = fit_stride
+        self.crop_scale = crop_scale
+
+        if device is None:
+            device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
+        self.device = device
+
+        self.classifier = None
+
+    def _scale_bbox(self, bbox):
+        """縮小 bbox 到中央 crop_scale 比例（聚焦球衣區域，避開頭/腳/背景）。"""
+        x1, y1, x2, y2 = bbox
+        w, h = x2 - x1, y2 - y1
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        nw, nh = w * self.crop_scale, h * self.crop_scale
+        return [cx - nw / 2, cy - nh / 2, cx + nw / 2, cy + nh / 2]
+
+    def _crop_player(self, frame, bbox, min_size=5):
+        """從 frame 切出縮小後 bbox 的區域，回 None 若無效。"""
+        scaled = self._scale_bbox(bbox)
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = [int(v) for v in scaled]
+        x1, y1 = max(0, min(x1, w - 1)), max(0, min(y1, h - 1))
+        x2, y2 = max(x1 + 1, min(x2, w)), max(y1 + 1, min(y2, h))
+        crop = frame[y1:y2, x1:x2]
+        if crop.shape[0] < min_size or crop.shape[1] < min_size:
+            return None
+        return crop
+
+    def load_model(self, crops):
+        """用收集到的 crops fit TeamClassifier。"""
+        print(f"  Fitting TeamClassifier on {self.device} with {len(crops)} crops...")
+        self.classifier = TeamClassifier(device=self.device)
+        self.classifier.fit(crops)
+
+    def get_player_color(self, frame, bbox):
+        """單一球員的 team 預測（classifier 必須已 fit）。"""
+        if self.classifier is None:
+            raise RuntimeError("classifier 尚未 fit，先跑 get_player_teams_across_frames")
+        crop = self._crop_player(frame, bbox)
+        if crop is None:
+            return 0
+        return int(self.classifier.predict([crop])[0])
+
+    def get_player_team(self, frame, player_bbox, player_id=None):
+        """回傳 team_id（1 或 2）。player_id 參數保留給舊 caller，但不再用快取。"""
+        del player_id  # 不再用 cache，每次重新預測（classifier 內部就快）
+        cluster = self.get_player_color(frame, player_bbox)
+        return cluster + 1  # K-means 0/1 → 1/2
+
+    def get_player_teams_across_frames(self, video_frames, player_tracks,
+                                       read_from_stub=False, stub_path=None):
         """
-        Initialize the TeamAssigner with specified team jersey descriptions.
-
-        Args:
-            team_1_class_name (str): Description of Team 1's jersey appearance.
-            team_2_class_name (str): Description of Team 2's jersey appearance.
+        對所有 frame 分隊。回 list[dict[player_id: team_id]]。
         """
-        self.team_colors = {}
-        self.player_team_dict = {}        
-    
-        self.team_1_class_name = team_1_class_name
-        self.team_2_class_name = team_2_class_name
-
-    def load_model(self):
-        """
-        Loads the pre-trained vision model for jersey color classification.
-        """
-        self.model = CLIPModel.from_pretrained("patrickjohncyh/fashion-clip")
-        self.processor = CLIPProcessor.from_pretrained("patrickjohncyh/fashion-clip")
-
-    def get_player_color(self,frame,bbox):
-        """
-        Analyzes the jersey color of a player within the given bounding box.
-
-        Args:
-            frame (numpy.ndarray): The video frame containing the player.
-            bbox (tuple): Bounding box coordinates of the player.
-
-        Returns:
-            str: The classified jersey color/description.
-        """
-        image = frame[int(bbox[1]):int(bbox[3]),int(bbox[0]):int(bbox[2])]
-
-        # Convert to PIL Image
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(rgb_image)
-        image = pil_image
-
-        classes = [self.team_1_class_name, self.team_2_class_name]
-
-        inputs = self.processor(text=classes, images=image, return_tensors="pt", padding=True)
-
-        outputs = self.model(**inputs)
-        logits_per_image = outputs.logits_per_image
-        probs = logits_per_image.softmax(dim=1) 
-
-
-        class_name=  classes[probs.argmax(dim=1)[0]]
-
-        return class_name
-
-    def get_player_team(self,frame,player_bbox,player_id):
-        """
-        Gets the team assignment for a player, using cached results if available.
-
-        Args:
-            frame (numpy.ndarray): The video frame containing the player.
-            player_bbox (tuple): Bounding box coordinates of the player.
-            player_id (int): Unique identifier for the player.
-
-        Returns:
-            int: Team ID (1 or 2) assigned to the player.
-        """
-        if player_id in self.player_team_dict:
-          return self.player_team_dict[player_id]
-
-        player_color = self.get_player_color(frame,player_bbox)
-
-        team_id=2
-        if player_color==self.team_1_class_name:
-            team_id=1
-
-        self.player_team_dict[player_id] = team_id
-        return team_id
-
-    def get_player_teams_across_frames(self,video_frames,player_tracks,read_from_stub=False, stub_path=None):
-        """
-        Processes all video frames to assign teams to players, with optional caching.
-
-        Args:
-            video_frames (list): List of video frames to process.
-            player_tracks (list): List of player tracking information for each frame.
-            read_from_stub (bool): Whether to attempt reading cached results.
-            stub_path (str): Path to the cache file.
-
-        Returns:
-            list: List of dictionaries mapping player IDs to team assignments for each frame.
-        """
-        
-        player_assignment = read_stub(read_from_stub,stub_path)
+        player_assignment = read_stub(read_from_stub, stub_path)
         if player_assignment is not None:
             if len(player_assignment) == len(video_frames):
                 return player_assignment
 
-        self.load_model()
+        # 1. 收集 fit 用 crops
+        print(f"  Collecting crops (stride={self.fit_stride}, scale={self.crop_scale})...")
+        crops = []
+        for f_idx in range(0, len(video_frames), self.fit_stride):
+            if f_idx >= len(player_tracks):
+                break
+            for pid, track in player_tracks[f_idx].items():
+                bbox = track.get('bbox') if isinstance(track, dict) else None
+                if bbox is None:
+                    continue
+                crop = self._crop_player(video_frames[f_idx], bbox)
+                if crop is not None:
+                    crops.append(crop)
 
-        player_assignment=[]
-        for frame_num, player_track in enumerate(player_tracks):        
-            player_assignment.append({})
-            
-            if frame_num %50 ==0:
-                self.player_team_dict = {}
+        if len(crops) < 10:
+            print(f"  ⚠ crops 太少（{len(crops)}），全部標 team=1")
+            player_assignment = [{pid: 1 for pid in ft} for ft in player_tracks]
+            save_stub(stub_path, player_assignment)
+            return player_assignment
 
+        # 2. fit
+        self.load_model(crops)
+
+        # 3. 對每幀每個 player 預測
+        print(f"  Predicting per-frame teams...")
+        player_assignment = []
+        for frame_num, player_track in enumerate(player_tracks):
+            frame_pred = {}
+            batch_crops, batch_pids = [], []
             for player_id, track in player_track.items():
-                team = self.get_player_team(video_frames[frame_num],   
-                                                    track['bbox'],
-                                                    player_id)
-                player_assignment[frame_num][player_id] = team
-        
-        save_stub(stub_path,player_assignment)
+                bbox = track.get('bbox') if isinstance(track, dict) else None
+                if bbox is None:
+                    continue
+                crop = self._crop_player(video_frames[frame_num], bbox)
+                if crop is None:
+                    frame_pred[player_id] = 1
+                    continue
+                batch_crops.append(crop)
+                batch_pids.append(player_id)
 
+            if batch_crops:
+                teams = self.classifier.predict(batch_crops)
+                for pid, t in zip(batch_pids, teams):
+                    frame_pred[pid] = int(t) + 1  # 0/1 → 1/2
+            player_assignment.append(frame_pred)
+
+        save_stub(stub_path, player_assignment)
         return player_assignment

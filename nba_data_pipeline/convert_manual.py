@@ -346,10 +346,13 @@ def process_clip(clip_id, clip_dir, frame_paths, coco_by_frame,
         court_tracks.append(ct)
 
     # ── COCO 跨幀投票：決定 screener/defender/handler 的代表 tid ────────────────
+    # 支援多 screener：同一幀的不同 COCO bbox 強制配給不同 track_id（避免雙重指派）。
+    # 最後依「任一幀內出現的最大 screener 數」決定要保留幾個 screener tid。
     screener_votes = collections.Counter()
     defender_votes = collections.Counter()
     handler_votes  = collections.Counter()
     screener_frames = set()
+    max_screeners_per_frame = 0
 
     for f_num, anns in coco_by_frame.items():
         f_idx = frame_nums.index(f_num) if f_num in frame_nums else -1
@@ -358,6 +361,12 @@ def process_clip(clip_id, clip_dir, frame_paths, coco_by_frame,
         frame_dict = raw_tracks[f_idx]
         if not frame_dict:
             continue
+
+        n_scr_here = sum(1 for c, _ in anns if c == 'screener')
+        if n_scr_here > max_screeners_per_frame:
+            max_screeners_per_frame = n_scr_here
+
+        used_tids_this_frame = set() # 防止重複分配
         for cat, bbox in anns:
             if cat not in ('screener', 'defender', 'ball_handler'):
                 continue
@@ -365,40 +374,53 @@ def process_clip(clip_id, clip_dir, frame_paths, coco_by_frame,
             coco_cy = float(bbox[1]) + float(bbox[3]) / 2
             best_tid, best_dist = None, float('inf')
             for tid, xyxy in frame_dict.items():
+                if tid in used_tids_this_frame:
+                    continue  # ← 新增：跳過已被本幀其他標注用掉的 tid
                 cx = (xyxy[0] + xyxy[2]) / 2
                 cy = (xyxy[1] + xyxy[3]) / 2
                 d = ((coco_cx - cx) ** 2 + (coco_cy - cy) ** 2) ** 0.5
                 if d < best_dist:
                     best_dist, best_tid = d, tid
+
             if best_tid is None:
                 continue
+
+            used_tids_this_frame.add(best_tid)
+
             if cat == 'screener':
                 screener_votes[best_tid] += 1
                 screener_frames.add(f_num)
+
             elif cat == 'defender':
                 defender_votes[best_tid] += 1
+
             elif cat == 'ball_handler':
                 handler_votes[best_tid] += 1
 
-    screener_tid = screener_votes.most_common(1)[0][0] if screener_votes else None
-    defender_tid = defender_votes.most_common(1)[0][0] if defender_votes else None
-    handler_tid  = handler_votes.most_common(1)[0][0]  if handler_votes  else None
+    n_keep = max(1, max_screeners_per_frame)
+    screener_tids = [tid for tid, _ in screener_votes.most_common(n_keep)] # 改成保留多個 screener tid
+    defender_tid  = defender_votes.most_common(1)[0][0] if defender_votes else None
+    handler_tid   = handler_votes.most_common(1)[0][0]  if handler_votes  else None
+
+    primary_screener_tid = screener_tids[0] if screener_tids else None
+    if max_screeners_per_frame > 1:
+        print(f"    multi-screener clip: keeping {len(screener_tids)} screener tids {screener_tids}")
 
     # ── 球隊分類：SigLIP TeamClassifier，失敗退回 HSV ─────────────────────────
-    track_team = classify_teams_siglip(frames, raw_tracks, screener_tid, handler_tid, defender_tid)
+    track_team = classify_teams_siglip(frames, raw_tracks, primary_screener_tid, handler_tid, defender_tid)
     if track_team is None:
-        track_team = classify_teams_hsv_fallback(frames, raw_tracks, screener_tid, handler_tid, defender_tid)
+        track_team = classify_teams_hsv_fallback(frames, raw_tracks, primary_screener_tid, handler_tid, defender_tid)
 
     # COCO 已知角色強制覆蓋球隊分類結果
-    if screener_tid is not None:
-        track_team[screener_tid] = 'offense'
+    for s_tid in screener_tids:
+        track_team[s_tid] = 'offense'
     if handler_tid is not None:
         track_team[handler_tid] = 'offense'
     if defender_tid is not None:
         track_team[defender_tid] = 'defense'
 
     # ── Sliding window → sequences ─────────────────────────────────────────────
-    clip_has_screener = screener_tid is not None
+    clip_has_screener = len(screener_tids) > 0
     results = []
 
     for start in range(0, len(frames) - SEQ_LEN + 1, STRIDE):
@@ -419,7 +441,7 @@ def process_clip(clip_id, clip_dir, frame_paths, coco_by_frame,
         present_tids = set(tid for tid, cnt in tid_counts.items() if cnt >= SEQ_LEN // 2)
 
         # SAM2 ID 穩定，但仍強制把 COCO 已知角色加入（邊緣情況保護）
-        for forced in (screener_tid, handler_tid, defender_tid):
+        for forced in screener_tids + [handler_tid, defender_tid]:
             if forced is not None and tid_counts.get(forced, 0) >= 1:
                 present_tids.add(forced)
         present_tids = list(present_tids)
@@ -433,8 +455,7 @@ def process_clip(clip_id, clip_dir, frame_paths, coco_by_frame,
 
         handler_in_window = handler_tid if (handler_tid is not None
                                             and handler_tid in offense_tids_w) else None
-        screeners_in_window = ([screener_tid] if (screener_tid is not None
-                                                   and screener_tid in offense_tids_w) else [])
+        screeners_in_window = [s for s in screener_tids if s in offense_tids_w]
 
         special    = {t for t in [handler_in_window] + screeners_in_window if t is not None}
         others_off = [t for t in offense_tids_w if t not in special]

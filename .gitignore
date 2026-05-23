@@ -19,4 +19,5 @@ models/
 .vscode/
 nba_data_pipeline/checkpoints/
 nba_data_pipeline/output_manual/
-nba_data_pipeline/output_track_viz/
+nba_data_pipeline/output_track_viz/roboflow.ipynb
+yolo_screen_dataset

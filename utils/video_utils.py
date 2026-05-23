@@ -1,23 +1,25 @@
 """
 A module for reading and writing video files.
 
-This module provides utility functions to load video frames into memory and save
-processed frames back to video files, with support for common video formats.
+優先用 cv2（快），如果 cv2 沒 FFMPEG 支援（某些 docker container 編譯版本不含），
+自動 fallback 到 imageio（需要 imageio[ffmpeg] 或 imageio[pyav]）。
+
+save_video 也一樣：cv2.VideoWriter 失敗就用 imageio。
 """
 
-import cv2
 import os
+import cv2
+import numpy as np
 
-def read_video(video_path):
-    """
-    Read all frames from a video file into memory.
 
-    Args:
-        video_path (str): Path to the input video file.
+def _cv2_can_open(video_path):
+    cap = cv2.VideoCapture(video_path)
+    ok = cap.isOpened() and cap.get(cv2.CAP_PROP_FRAME_COUNT) > 0
+    cap.release()
+    return ok
 
-    Returns:
-        list: List of video frames as numpy arrays.
-    """
+
+def _read_video_cv2(video_path):
     cap = cv2.VideoCapture(video_path)
     frames = []
     while True:
@@ -25,24 +27,71 @@ def read_video(video_path):
         if not ret:
             break
         frames.append(frame)
+    cap.release()
     return frames
 
-def save_video(ouput_video_frames,output_video_path):
-    """
-    Save a sequence of frames as a video file.
 
-    Creates necessary directories if they don't exist and writes frames using XVID codec.
+def _read_video_imageio(video_path):
+    """imageio 讀的是 RGB，OpenCV 用 BGR，要轉。"""
+    try:
+        import imageio.v3 as iio
+    except ImportError:
+        raise RuntimeError(
+            "OpenCV 沒 FFMPEG 支援，需要 imageio：pip install 'imageio[ffmpeg]'")
+    frames = []
+    for frame in iio.imiter(video_path, plugin='pyav'):
+        frames.append(cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR))
+    return frames
 
-    Args:
-        ouput_video_frames (list): List of frames to save.
-        output_video_path (str): Path where the video should be saved.
-    """
-    # If folder doesn't exist, create it
-    if not os.path.exists(os.path.dirname(output_video_path)):
-        os.makedirs(os.path.dirname(output_video_path))
 
+def read_video(video_path):
+    """讀影片返回 BGR numpy frame 的 list。"""
+    if _cv2_can_open(video_path):
+        return _read_video_cv2(video_path)
+    print(f"  [video_utils] cv2 無法讀 {video_path}，改用 imageio")
+    return _read_video_imageio(video_path)
+
+
+def _save_video_cv2(output_video_frames, output_video_path, fps=24):
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter(output_video_path, fourcc, 24, (ouput_video_frames[0].shape[1], ouput_video_frames[0].shape[0]))
-    for frame in ouput_video_frames:
+    h, w = output_video_frames[0].shape[:2]
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (w, h))
+    if not out.isOpened():
+        return False
+    for frame in output_video_frames:
         out.write(frame)
     out.release()
+    if os.path.getsize(output_video_path) == 0:
+        return False
+    return True
+
+
+def _save_video_imageio(output_video_frames, output_video_path, fps=24):
+    try:
+        import imageio.v3 as iio
+    except ImportError:
+        raise RuntimeError(
+            "OpenCV 沒 FFMPEG 支援，需要 imageio：pip install 'imageio[ffmpeg]'")
+    # imageio 預期 RGB，cv2 是 BGR，要轉
+    rgb_frames = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in output_video_frames]
+    # imageio 對 .avi 可能不支援，存成 .mp4 比較通用
+    out_path = output_video_path
+    if out_path.lower().endswith('.avi'):
+        out_path = os.path.splitext(out_path)[0] + '.mp4'
+        print(f"  [video_utils] imageio 不支援 .avi，改存成 {out_path}")
+    iio.imwrite(out_path, np.stack(rgb_frames), fps=fps, plugin='pyav', codec='h264')
+
+
+def save_video(output_video_frames, output_video_path, fps=24):
+    if not output_video_frames:
+        print("  [video_utils] 沒有 frame 可儲存")
+        return
+
+    out_dir = os.path.dirname(output_video_path)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    if _save_video_cv2(output_video_frames, output_video_path, fps=fps):
+        return
+    print(f"  [video_utils] cv2 VideoWriter 失敗，改用 imageio")
+    _save_video_imageio(output_video_frames, output_video_path, fps=fps)
