@@ -86,21 +86,41 @@ TARGET_KPS = [
 
 # ── SAM2 追蹤 ─────────────────────────────────────────────────────────────────
 
+def _pick_init_frame(frames, player_model, min_players=5, max_search=30, conf=0.4):
+    """
+    在前 max_search 幀裡找一個偵測球員最多的當 SAM2 init frame。
+    避免拿第 0 幀（可能是黑屏 / scene 切換 / 少數人入鏡）導致 SAM2 追錯。
+    """
+    best_idx, best_count, best_boxes = 0, 0, None
+    n_search = min(max_search, len(frames))
+    for i in range(n_search):
+        r = player_model.predict(frames[i], conf=conf, verbose=False)[0]
+        boxes = r.boxes.xyxy.cpu().numpy() if r.boxes is not None else []
+        n = len(boxes)
+        if n > best_count:
+            best_idx, best_count, best_boxes = i, n, boxes
+            if n >= 10:  # 已經 10 人 = 完整 5v5，就用這幀
+                break
+    if best_count < min_players:
+        print(f"  ⚠ 前 {n_search} 幀都偵測不到 >={min_players} 個球員 "
+              f"(最佳 frame {best_idx} 有 {best_count} 個)")
+    return best_idx, best_boxes
+
+
 def run_sam2_tracks(frames, player_model, predictor, device='cuda'):
     """
-    YOLO 偵測第一幀 → SAM2 跨幀傳播。
-    回傳 list[dict[player_id: [x1,y1,x2,y2]]]，與舊 player_tracks 同格式（無 bbox key）。
+    YOLO 在「球員最多的幀」偵測 → SAM2 跨幀傳播。
+    回傳 list[dict[player_id: {'bbox': [x1,y1,x2,y2]}]]，與舊 player_tracks 格式相容。
     """
     if not frames:
         return []
 
-    # 第一幀 YOLO 偵測（用單 class player_detector.pt，純粹拿初始 bbox）
-    result = player_model.predict(frames[0], conf=0.4, verbose=False)[0]
-    boxes = result.boxes.xyxy.cpu().numpy()
-    if len(boxes) == 0:
-        print("  ⚠ SAM2: 第一幀偵測不到任何球員")
+    init_idx, boxes = _pick_init_frame(frames, player_model)
+    if boxes is None or len(boxes) == 0:
+        print("  ⚠ SAM2: 找不到能初始化的幀")
         return [{} for _ in frames]
 
+    print(f"  SAM2 init at frame {init_idx} with {len(boxes)} player bboxes")
     obj_ids = list(range(1, len(boxes) + 1))
 
     # SAM2 video predictor 需要影格目錄，把 numpy frames 寫成 jpg
@@ -113,28 +133,40 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda'):
         predictor.reset_state(inference_state)
 
         autocast_dtype = torch.bfloat16 if device == 'cuda' else torch.float32
+
         with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
             for obj_id, xyxy in zip(obj_ids, boxes):
                 predictor.add_new_points_or_box(
-                    inference_state, frame_idx=0, obj_id=obj_id,
+                    inference_state, frame_idx=init_idx, obj_id=obj_id,
                     box=xyxy.astype(np.float32))
 
         raw_tracks = [{} for _ in frames]
-        # 第 0 幀直接用 YOLO 偵測結果（mask 可能還沒 propagate 到）
+        # init frame 直接用 YOLO 結果填入
         for obj_id, xyxy in zip(obj_ids, boxes):
-            raw_tracks[0][int(obj_id)] = {'bbox': xyxy.tolist()}
+            raw_tracks[init_idx][int(obj_id)] = {'bbox': xyxy.tolist()}
 
-        # 其他幀靠 SAM2 propagate
+        def _absorb(frame_idx, object_ids, masks):
+            for obj_id, mask in zip(object_ids, masks):
+                mask_np = (mask[0].cpu().numpy() > 0)
+                if mask_np.any() and 0 <= frame_idx < len(raw_tracks):
+                    ys, xs = np.where(mask_np)
+                    raw_tracks[frame_idx][int(obj_id)] = {
+                        'bbox': [float(xs.min()), float(ys.min()),
+                                 float(xs.max()), float(ys.max())]
+                    }
+
+        # 從 init_idx 往「後」propagate
         with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
             for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state):
-                for obj_id, mask in zip(object_ids, masks):
-                    mask_np = (mask[0].cpu().numpy() > 0)
-                    if mask_np.any() and frame_idx < len(raw_tracks):
-                        ys, xs = np.where(mask_np)
-                        raw_tracks[frame_idx][int(obj_id)] = {
-                            'bbox': [float(xs.min()), float(ys.min()),
-                                     float(xs.max()), float(ys.max())]
-                        }
+                _absorb(frame_idx, object_ids, masks)
+
+        # 從 init_idx 往「前」propagate（如果 init_idx > 0）
+        if init_idx > 0:
+            with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
+                for frame_idx, object_ids, masks in predictor.propagate_in_video(
+                        inference_state, reverse=True):
+                    _absorb(frame_idx, object_ids, masks)
+
         predictor.reset_state(inference_state)
         return raw_tracks
     finally:
@@ -155,6 +187,55 @@ def iou(a, b):
     bw, bh = bx2 - bx1, by2 - by1
     union = aw * ah + bw * bh - inter
     return inter / union if union > 0 else 0.0
+
+
+def detect_player_class_votes(frames, player_tracks, handler_model,
+                              conf=0.4, iou_threshold=0.3):
+    """
+    對每幀跑 multi-class YOLO，IOU 配對到 SAM2 player_id，
+    記錄每個 player_id 整段被預測為各 class 的票數。
+
+    回傳 dict[player_id: Counter({class_id: count})]。
+    class 0=ball_handler, 1=screener, 2=defender, 3=others
+    """
+    from collections import defaultdict
+    votes = defaultdict(Counter)
+    n = len(frames)
+
+    BATCH = 16
+    results = []
+    for i in range(0, n, BATCH):
+        batch_res = handler_model.predict(frames[i:i+BATCH], conf=conf, verbose=False)
+        results.extend(batch_res)
+
+    for f_idx, result in enumerate(results):
+        if result.boxes is None or len(result.boxes) == 0:
+            continue
+        cls  = result.boxes.cls.cpu().numpy().astype(int)
+        xyxy = result.boxes.xyxy.cpu().numpy()
+
+        # 對每個 YOLO detection 配對最匹配的 SAM2 player_id（避免重複指派）
+        used_pids = set()
+        for det_idx in range(len(cls)):
+            det_class = int(cls[det_idx])
+            det_bbox  = xyxy[det_idx]
+
+            best_pid, best_iou = -1, 0.0
+            for pid, info in player_tracks[f_idx].items():
+                if pid in used_pids:
+                    continue
+                bbox = info.get('bbox')
+                if bbox is None:
+                    continue
+                v = iou(det_bbox, bbox)
+                if v > best_iou:
+                    best_iou, best_pid = v, pid
+
+            if best_iou >= iou_threshold and best_pid != -1:
+                used_pids.add(best_pid)
+                votes[best_pid][det_class] += 1
+
+    return dict(votes)
 
 
 def detect_handler_per_frame(frames, player_tracks, handler_model,
@@ -324,11 +405,14 @@ def positions_for(pid, court_coords, window):
 
 
 def detect_screens(model, device, court_coords, player_assignment, ball_acquisition,
-                   threshold=0.70, debug=False):
+                   threshold=0.70, debug=False, yolo_defender_pids=None):
     """
     對每張 frame 預測掩護。回傳 list[None | dict]。
     debug=True 時，對每個 score >= threshold 的視窗印出 offense/defense 分配與所有候選人分數。
+    yolo_defender_pids: set of player_id，YOLO 主要把他們認成 defender 的 id，會從 offense 候選剔除。
     """
+    if yolo_defender_pids is None:
+        yolo_defender_pids = set()
     num_frames = len(court_coords)
     per_frame = [None] * num_frames
 
@@ -352,16 +436,15 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
             continue
         handler_id, _ = handler_votes.most_common(1)[0]
 
-        # Handler team
-        handler_team = None
+        # Handler team（視窗內 majority vote，避免 SAM2 mask drift 早期幀污染）
+        handler_team_votes = Counter()
         for f_idx in window:
             assign = player_assignment[f_idx]
             if handler_id in assign:
-                handler_team = assign[handler_id]
-                break
-            
-        if handler_team is None:
+                handler_team_votes[assign[handler_id]] += 1
+        if not handler_team_votes:
             continue
+        handler_team = handler_team_votes.most_common(1)[0][0]
 
         # 蒐集視窗內出現過、有 court coords 的所有球員
         all_pids = set()
@@ -369,17 +452,26 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
             all_pids.update(court_coords[f_idx].keys())
         all_pids.discard(handler_id)
 
-        # 分隊
+        # 分隊（同樣用 majority vote，避免一兩幀漂移就把球員分錯邊）
         offense_pids, defense_pids = [], []
         for pid in all_pids:
-            team = None
+            team_votes = Counter()
             for f_idx in window:
                 if pid in player_assignment[f_idx]:
-                    team = player_assignment[f_idx][pid]
-                    break
+                    team_votes[player_assignment[f_idx][pid]] += 1
+                    
+            if not team_votes:
+                continue
+
+            team = team_votes.most_common(1)[0][0]
+
             if team == handler_team:
-                offense_pids.append(pid)
-            elif team is not None:
+                # YOLO 主要認為這個 player 是 defender → 強制改判 defense
+                if pid in yolo_defender_pids:
+                    defense_pids.append(pid)
+                else:
+                    offense_pids.append(pid)
+            else:
                 defense_pids.append(pid)
 
         if not offense_pids or handler_id not in court_coords[window[-1]]:
@@ -561,6 +653,19 @@ def main():
     handler_model = YOLO(args.handler_model)
     ball_acquisition = detect_handler_per_frame(frames, player_tracks, handler_model)
 
+    # ── YOLO 整段 class 投票（class 0=handler, 1=screener, 2=defender, 3=other）──
+    print("YOLO per-player class voting...")
+    class_votes = detect_player_class_votes(frames, player_tracks, handler_model)
+    yolo_defender_pids = set()
+    for pid, counter in class_votes.items():
+        if not counter:
+            continue
+        top_class, _ = counter.most_common(1)[0]
+        if top_class == 2:  # defender
+            yolo_defender_pids.add(pid)
+    print(f"  YOLO 主要認為以下 player_id 是 defender（會從 offense 候選剔除）: "
+          f"{sorted(yolo_defender_pids)}")
+
     # ── Court keypoints ────────────────────────────────────────────────────
     print("Court keypoints...")
     court_detector = CourtKeypointDetector(
@@ -606,6 +711,7 @@ def main():
     per_frame = detect_screens(
         model, device, court_coords, player_assignment, ball_acquisition,
         threshold=args.threshold, debug=args.debug,
+        yolo_defender_pids=yolo_defender_pids,
     )
 
     n_screen_frames = sum(1 for e in per_frame if e is not None)

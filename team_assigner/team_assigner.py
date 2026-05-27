@@ -65,7 +65,7 @@ class TeamAssigner:
         """用收集到的 crops fit TeamClassifier。"""
         print(f"  Fitting TeamClassifier on {self.device} with {len(crops)} crops...")
         self.classifier = TeamClassifier(device=self.device)
-        self.classifier.fit(crops)
+        self.classifier.fit(crops) # 抓出兩隊的特徵
 
     def get_player_color(self, frame, bbox):
         """單一球員的 team 預測（classifier 必須已 fit）。"""
@@ -75,12 +75,6 @@ class TeamAssigner:
         if crop is None:
             return 0
         return int(self.classifier.predict([crop])[0])
-
-    def get_player_team(self, frame, player_bbox, player_id=None):
-        """回傳 team_id（1 或 2）。player_id 參數保留給舊 caller，但不再用快取。"""
-        del player_id  # 不再用 cache，每次重新預測（classifier 內部就快）
-        cluster = self.get_player_color(frame, player_bbox)
-        return cluster + 1  # K-means 0/1 → 1/2
 
     def get_player_teams_across_frames(self, video_frames, player_tracks,
                                        read_from_stub=False, stub_path=None):
@@ -98,7 +92,7 @@ class TeamAssigner:
         for f_idx in range(0, len(video_frames), self.fit_stride):
             if f_idx >= len(player_tracks):
                 break
-            for pid, track in player_tracks[f_idx].items():
+            for pid, track in player_tracks[f_idx].items():  # 遍歷一frame的所有 player
                 bbox = track.get('bbox') if isinstance(track, dict) else None
                 if bbox is None:
                     continue
@@ -120,7 +114,7 @@ class TeamAssigner:
         player_assignment = []
         for frame_num, player_track in enumerate(player_tracks):
             frame_pred = {}
-            batch_crops, batch_pids = [], []
+            batch_crops, batch_pids = [], [] # 每個frame 要更新一次
             for player_id, track in player_track.items():
                 bbox = track.get('bbox') if isinstance(track, dict) else None
                 if bbox is None:
@@ -136,6 +130,7 @@ class TeamAssigner:
                 teams = self.classifier.predict(batch_crops)
                 for pid, t in zip(batch_pids, teams):
                     frame_pred[pid] = int(t) + 1  # 0/1 → 1/2
+
             player_assignment.append(frame_pred)
 
         save_stub(stub_path, player_assignment)
