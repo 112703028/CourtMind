@@ -11,12 +11,14 @@ Pipeline（新版）:
   6. 影片輸出（HANDLER 綠框、SCREENER 紅框）
 
 Usage:
-  python nba_data_pipeline/inference.py \\
-    --video           input_videos/screen/screen_13.mp4 \\
-    --ckpt            nba_data_pipeline/checkpoints/finetune_manual_best.pt \\
-    --handler_model   models/handler_detector.pt \\
-    --output_video    output_videos/screens_pred.avi \\
-    --threshold       0.70
+  python nba_data_pipeline/inference.py \
+    --video         input_videos/screen/screen_100.mp4 \
+    --ckpt          nba_data_pipeline/checkpoints/finetune_manual_best.pt \
+    --handler_model models/handler_detector.pt \
+    --output_video  output_videos/screens_v100.avi \
+    --threshold     0.70 \
+    --debug
+
 """
 
 import os
@@ -187,6 +189,82 @@ def iou(a, b):
     bw, bh = bx2 - bx1, by2 - by1
     union = aw * ah + bw * bh - inter
     return inter / union if union > 0 else 0.0
+
+
+def verify_sam2_with_yolo(frames, player_tracks, player_model,
+                          iou_threshold=0.5, batch=16, conf=0.4):
+    """
+    每幀用 YOLO 重新偵測，跟 SAM2 給的 bbox 配對。
+    SAM2 mask 飄掉 / 跟其他 ID 撞 → IOU 太低或被搶 → 標記為 drifted。
+
+    每個 SAM2 player_id 在每幀：
+      - 找最大 IOU 的 YOLO bbox
+      - IOU < iou_threshold → drifted
+      - 多個 SAM2 ID 搶同一個 YOLO bbox → 只留 IOU 最高的，其餘 drifted
+
+    drifted 的會把 bbox 設為 None，並加 'drifted': True flag。
+    下游（team_assigner / court_coords / draw）原本就有 `if bbox is None` 跳過邏輯。
+    """
+    print(f"  YOLO drift verification ({len(frames)} frames)...")
+    yolo_results = []
+    for i in range(0, len(frames), batch):
+        yolo_results.extend(
+            player_model.predict(frames[i:i+batch], conf=conf, verbose=False)
+        )
+
+    n_drift = 0
+    n_total = 0
+
+    for f_idx, result in enumerate(yolo_results):
+        frame_tracks = player_tracks[f_idx]
+        if not frame_tracks:
+            continue
+
+        yolo_bboxes = (result.boxes.xyxy.cpu().numpy()
+                       if result.boxes is not None and len(result.boxes) > 0
+                       else [])
+
+        # 每個 SAM2 pid 找最佳 YOLO 配對
+        match = {}   # pid -> (yolo_idx, iou)
+        for pid, info in frame_tracks.items():
+            n_total += 1
+            sam_bbox = info.get('bbox') if isinstance(info, dict) else None
+            if sam_bbox is None:
+                continue
+            best_iou, best_idx = 0.0, -1
+            for y_idx, y_bbox in enumerate(yolo_bboxes):
+                v = iou(sam_bbox, y_bbox)
+                if v > best_iou:
+                    best_iou, best_idx = v, y_idx
+            match[pid] = (best_idx, best_iou)
+
+        # 衝突解決：每個 YOLO bbox 只能配對一個 SAM2 ID（IOU 最高的勝出）
+        yolo_winner = {}    # yolo_idx -> (winner_pid, winner_iou)
+        drifted_pids = set()
+        for pid, (y_idx, iou_v) in match.items():
+            if y_idx == -1 or iou_v < iou_threshold:
+                drifted_pids.add(pid)
+                continue
+            if y_idx in yolo_winner:
+                prev_pid, prev_iou = yolo_winner[y_idx]
+                if iou_v > prev_iou:
+                    drifted_pids.add(prev_pid)
+                    yolo_winner[y_idx] = (pid, iou_v)
+                else:
+                    drifted_pids.add(pid)
+            else:
+                yolo_winner[y_idx] = (pid, iou_v)
+
+        # 把 drifted 的 bbox 清掉
+        for pid in drifted_pids:
+            if pid in frame_tracks:
+                frame_tracks[pid]['bbox'] = None
+                frame_tracks[pid]['drifted'] = True
+                n_drift += 1
+
+    print(f"  → {n_drift}/{n_total} player-frames marked as drifted "
+          f"({100*n_drift/max(n_total,1):.1f}%)")
+    return player_tracks
 
 
 def detect_player_class_votes(frames, player_tracks, handler_model,
@@ -562,31 +640,36 @@ def draw_predictions(frames, player_tracks, per_frame_screens):
         handler_id = ev['handler_id'] if ev is not None else None
         screener_id = ev['screener_id'] if ev is not None else None
 
-        # 1. 所有球員：細灰框 + ID
+        # 1. 所有球員：細灰框 + ID（drifted 的不畫）
         for pid, info in tracks.items():
-            if 'bbox' not in info:
+            bbox = info.get('bbox')
+            if bbox is None:
                 continue
             if pid == handler_id or pid == screener_id:
                 continue  # handler / screener 之後用粗框畫
-            x1, y1, x2, y2 = [int(v) for v in info['bbox']]
+            x1, y1, x2, y2 = [int(v) for v in bbox]
             cv2.rectangle(img, (x1, y1), (x2, y2), (180, 180, 180), 1)
             cv2.putText(img, f"#{pid}", (x1, max(15, y1 - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1)
 
-        # 2. Handler：粗綠框
-        if handler_id is not None and handler_id in tracks and 'bbox' in tracks[handler_id]:
-            x1, y1, x2, y2 = [int(v) for v in tracks[handler_id]['bbox']]
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            cv2.putText(img, f"HANDLER #{handler_id}", (x1, max(20, y1 - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # 2. Handler：粗綠框（drifted 那幀不畫，避免框錯人）
+        if handler_id is not None and handler_id in tracks:
+            bbox = tracks[handler_id].get('bbox')
+            if bbox is not None:
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                cv2.putText(img, f"HANDLER #{handler_id}", (x1, max(20, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # 3. Screener：粗紅框 + 信心分數
-        if screener_id is not None and screener_id in tracks and 'bbox' in tracks[screener_id]:
-            x1, y1, x2, y2 = [int(v) for v in tracks[screener_id]['bbox']]
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 3)
-            cv2.putText(img, f"SCREENER #{screener_id} {ev['score']:.2f}",
-                        (x1, max(20, y1 - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        # 3. Screener：粗紅框 + 信心分數（drifted 那幀不畫，避免框到 defender）
+        if screener_id is not None and screener_id in tracks:
+            bbox = tracks[screener_id].get('bbox')
+            if bbox is not None:
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                cv2.putText(img, f"SCREENER #{screener_id} {ev['score']:.2f}",
+                            (x1, max(20, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         out.append(img)
     return out
@@ -647,6 +730,9 @@ def main():
     player_tracks = run_sam2_tracks(frames, player_model, predictor, device=str(device))
     n_tracked = sum(1 for ft in player_tracks if ft)
     print(f"  SAM2 tracked {n_tracked}/{len(frames)} frames")
+
+    # 用 YOLO 每幀重新偵測，清掉 SAM2 mask drift 的 bbox
+    player_tracks = verify_sam2_with_yolo(frames, player_tracks, player_model)
 
     # ── Handler detection: multi-class YOLO 直接抓 ball_handler ──────────────
     print(f"Loading handler detector: {args.handler_model}")
