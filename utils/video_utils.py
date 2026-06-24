@@ -47,8 +47,13 @@ def _read_video_imageio(video_path):
 def read_video(video_path):
     """讀影片返回 BGR numpy frame 的 list。"""
     if _cv2_can_open(video_path):
-        return _read_video_cv2(video_path)
-    print(f"  [video_utils] cv2 無法讀 {video_path}，改用 imageio")
+        frames = _read_video_cv2(video_path)
+        # AV1 等 codec：cv2 可以「打開」但實際讀不到 frame → 也要 fallback
+        if len(frames) > 0:
+            return frames
+        print(f"  [video_utils] cv2 開了 {video_path} 但 0 frames，改用 imageio")
+    else:
+        print(f"  [video_utils] cv2 無法讀 {video_path}，改用 imageio")
     return _read_video_imageio(video_path)
 
 

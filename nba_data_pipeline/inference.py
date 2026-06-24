@@ -88,16 +88,40 @@ TARGET_KPS = [
 
 # ── SAM2 追蹤 ─────────────────────────────────────────────────────────────────
 
+def _filter_player_like_bboxes(boxes, min_height=40, min_aspect=1.2):
+    """
+    過濾掉「不像球員」的 bbox（如籃球、雜訊）。
+    球員特徵：直立（高 > 寬 × min_aspect）+ 高度 > min_height pixel
+    """
+    if len(boxes) == 0:
+        return boxes
+    filtered = []
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        w, h = x2 - x1, y2 - y1
+        if w <= 0 or h <= 0:
+            continue
+        if h < min_height:
+            continue              # 太小 = 球 / 雜訊
+        if h / w < min_aspect:
+            continue              # 太方 / 太寬 = 不是直立球員
+        filtered.append(box)
+    return np.array(filtered) if filtered else np.empty((0, 4), dtype=float)
+
+
 def _pick_init_frame(frames, player_model, min_players=5, max_search=30, conf=0.4):
     """
     在前 max_search 幀裡找一個偵測球員最多的當 SAM2 init frame。
     避免拿第 0 幀（可能是黑屏 / scene 切換 / 少數人入鏡）導致 SAM2 追錯。
+    過濾「球員形狀」的 bbox，避免籃球 / 雜訊被當 player。
     """
     best_idx, best_count, best_boxes = 0, 0, None
     n_search = min(max_search, len(frames))
     for i in range(n_search):
         r = player_model.predict(frames[i], conf=conf, verbose=False)[0]
-        boxes = r.boxes.xyxy.cpu().numpy() if r.boxes is not None else []
+        raw_boxes = r.boxes.xyxy.cpu().numpy() if r.boxes is not None else []
+        # 過濾掉籃球/雜訊（短/方的 bbox 不是球員）
+        boxes = _filter_player_like_bboxes(raw_boxes)
         n = len(boxes)
         if n > best_count:
             best_idx, best_count, best_boxes = i, n, boxes
@@ -699,6 +723,10 @@ def main():
                         help='YOLO 第一幀球員偵測模型（單 class）')
     parser.add_argument('--sam2_ckpt', default=SAM2_CHECKPOINT_DEFAULT)
     parser.add_argument('--sam2_config', default=SAM2_CONFIG_DEFAULT)
+    parser.add_argument('--siamese_team_model', default=str(PROJECT_ROOT / 'models' / 'team_siamese.pt'),
+                        help='訓練好的 Siamese team classifier，空字串 = 用舊 sports.TeamClassifier')
+    parser.add_argument('--siamese_threshold', type=float, default=0.5,
+                        help='Siamese 同隊判斷閾值')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -764,11 +792,26 @@ def main():
 
     # ── Team assignment（吃 SAM2 的 player_tracks）────────────────────────────
     print("Team assignment...")
-    team_assigner = TeamAssigner()
-    player_assignment = team_assigner.get_player_teams_across_frames(
-        frames, player_tracks, read_from_stub=use_stub,
-        stub_path=os.path.join(args.stub_dir, 'player_assignment_stub.pkl'),
-    )
+    if args.siamese_team_model and os.path.exists(args.siamese_team_model):
+        # 用訓練好的 Siamese 模型（pairwise 比較）
+        from nba_data_pipeline.team_classifier.inference import TeamAssignerSiamese
+        team_assigner = TeamAssignerSiamese(
+            ckpt_path=args.siamese_team_model,
+            device=str(device),
+            threshold=args.siamese_threshold,
+        )
+        player_assignment = team_assigner.get_player_teams_across_frames(
+            frames, player_tracks, ball_acquisition,
+            read_from_stub=use_stub,
+            stub_path=os.path.join(args.stub_dir, 'player_assignment_stub.pkl'),
+        )
+    else:
+        # 舊版 sports.TeamClassifier（K-means + SigLIP）
+        team_assigner = TeamAssigner(fit_stride=10)
+        player_assignment = team_assigner.get_player_teams_across_frames(
+            frames, player_tracks, read_from_stub=use_stub,
+            stub_path=os.path.join(args.stub_dir, 'player_assignment_stub.pkl'),
+        )
 
     # ── 時間平滑 handler（YOLO 偵測可能還有少數漏抓，用多數決補）─────────────
     ball_acquisition = smooth_ball_acquisition(
