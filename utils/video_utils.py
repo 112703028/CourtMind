@@ -72,19 +72,32 @@ def _save_video_cv2(output_video_frames, output_video_path, fps=24):
 
 
 def _save_video_imageio(output_video_frames, output_video_path, fps=24):
+    """
+    Streaming 寫法 — 一邊讀一邊寫，省記憶體（不要一次 stack 整個 array）。
+    對 840 幀 1080p 影片可省下 ~10GB peak memory。
+    """
     try:
-        import imageio.v3 as iio
+        import imageio
     except ImportError:
         raise RuntimeError(
             "OpenCV 沒 FFMPEG 支援，需要 imageio：pip install 'imageio[ffmpeg]'")
-    # imageio 預期 RGB，cv2 是 BGR，要轉
-    rgb_frames = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in output_video_frames]
     # imageio 對 .avi 可能不支援，存成 .mp4 比較通用
     out_path = output_video_path
     if out_path.lower().endswith('.avi'):
         out_path = os.path.splitext(out_path)[0] + '.mp4'
         print(f"  [video_utils] imageio 不支援 .avi，改存成 {out_path}")
-    iio.imwrite(out_path, np.stack(rgb_frames), fps=fps, plugin='pyav', codec='h264')
+
+    # Streaming writer：每幀寫進去就丟掉，不累積到 memory
+    writer = imageio.get_writer(out_path, fps=fps, codec='h264', quality=8)
+    try:
+        for i, frame in enumerate(output_video_frames):
+            # cv2 BGR → RGB
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            writer.append_data(rgb)
+            if (i + 1) % 100 == 0:
+                print(f"  [video_utils] writing {i+1}/{len(output_video_frames)} frames...")
+    finally:
+        writer.close()
 
 
 def save_video(output_video_frames, output_video_path, fps=24):
