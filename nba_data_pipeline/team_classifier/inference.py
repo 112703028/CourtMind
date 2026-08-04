@@ -79,11 +79,13 @@ class TeamAssignerSiamese:
          - prob > 0.5 → team 1（offense），otherwise team 2（defense）
     """
 
-    def __init__(self, ckpt_path='models/team_siamese.pt', device=None, threshold=0.5):
+    def __init__(self, ckpt_path='models/team_siamese.pt', device=None, threshold=0.5,
+                 debug=False):
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device
         self.threshold = threshold
+        self._debug = debug
 
         # Load model
         ckpt = torch.load(ckpt_path, map_location=device)
@@ -156,6 +158,12 @@ class TeamAssignerSiamese:
         result = {handler_id: 1}     # handler 自己永遠 team 1
         for pid, p in zip(other_pids, probs):
             result[pid] = 1 if p >= self.threshold else 2
+
+        # Debug: 印每個 pair 的 prob（只在 stride 幀）
+        if getattr(self, '_debug_this_frame', False):
+            probs_str = ', '.join(f'{pid}={p:.2f}' for pid, p in zip(other_pids, probs))
+            print(f"    handler={handler_id}  probs: {probs_str}")
+
         return result
 
     def get_player_teams_across_frames(self, video_frames, player_tracks,
@@ -177,8 +185,13 @@ class TeamAssignerSiamese:
 
         print(f"  Predicting per-frame teams (Siamese)...")
         player_assignment = []
+        debug_stride = 30   # 每 30 幀印一次 debug
         for f_idx, frame in enumerate(video_frames):
             handler_id = ball_acquisition[f_idx] if f_idx < len(ball_acquisition) else -1
+            # 只在特定幀印 debug（省 log）
+            self._debug_this_frame = self._debug and (f_idx % debug_stride == 0)
+            if self._debug_this_frame:
+                print(f"  [SIAM] frame {f_idx}:")
             frame_pred = self.predict_teams_one_frame(
                 frame, player_tracks[f_idx], handler_id
             )

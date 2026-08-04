@@ -1,9 +1,10 @@
 """
 extract_pairs.py — 從 COCO 標注抽出 (handler_crop, target_crop, same_team) pairs。
 
-訓練資料 logic:
-  - 同隊 (label=1): ball_handler ↔ screener
-  - 異隊 (label=0): ball_handler ↔ defender
+訓練資料 logic（同圖任兩人配對，不限 handler 當 anchor）:
+  - 同隊 (label=1): offense↔offense（handler/screener 互相）、defense↔defense
+  - 異隊 (label=0): offense↔defender
+  → 同樣標注量榨出 2-3 倍 pair，且 crop 每個實例只存一次
 
 輸出:
   team_classifier_data/
@@ -17,6 +18,7 @@ extract_pairs.py — 從 COCO 標注抽出 (handler_crop, target_crop, same_team
 
 import json
 import collections
+import itertools
 from pathlib import Path
 
 import cv2
@@ -24,8 +26,8 @@ import cv2
 # ── 路徑 ──────────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-COCO_PATH    = PROJECT_ROOT / 'screen_data' / 'screen_v2.coco' / 'train' / '_annotations.coco.json'
-IMG_DIR      = PROJECT_ROOT / 'screen_data' / 'screen_v2.coco' / 'train'
+COCO_PATH    = PROJECT_ROOT / 'screen_data' / 'screen_full_defender' / 'train' / '_annotations.coco.json'
+IMG_DIR      = PROJECT_ROOT / 'screen_data' / 'screen_full_defender' / 'train'
 OUT_DIR      = PROJECT_ROOT / 'team_classifier_data'
 CROP_DIR     = OUT_DIR / 'crops'
 
@@ -74,100 +76,88 @@ def main():
     for cat_id, name in cat_map.items():
         name_to_ids[name].add(cat_id)
 
-    # 設定的 OFFENSE/DEFENSE class 對應的 category id
-    offense_cat_ids = set()
+    # 設定的 OFFENSE/DEFENSE class 對應的 category id → 隊伍標記 'O' / 'D'
+    cat_team = {}   # cat_id -> 'O' | 'D'
     for name in OFFENSE_CLASSES:
-        offense_cat_ids |= name_to_ids[name]
-    defense_cat_ids = set()
+        for cid in name_to_ids[name]:
+            cat_team[cid] = 'O'
     for name in DEFENSE_CLASSES:
-        defense_cat_ids |= name_to_ids[name]
+        for cid in name_to_ids[name]:
+            cat_team[cid] = 'D'
 
     print(f"  Categories: {cat_map}")
-    print(f"  Offense cat ids: {offense_cat_ids}")
-    print(f"  Defense cat ids: {defense_cat_ids}")
+    print(f"  Offense cat ids: {[c for c,t in cat_team.items() if t=='O']}")
+    print(f"  Defense cat ids: {[c for c,t in cat_team.items() if t=='D']}")
 
     # 建立輸出資料夾
     CROP_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── 把標注按 image_id 分組 ─────────────────────────────────────────────────
-    # ann_by_img[image_id] = [(category_name, bbox), ...]
+    # ann_by_img[image_id] = [(team, cat_name, bbox), ...]
     ann_by_img = collections.defaultdict(list)
     for ann in coco['annotations']:
         cat_id = ann['category_id']
-        cat_name = cat_map[cat_id]
-        # 只保留我們在意的 class
-        if cat_id in offense_cat_ids or cat_id in defense_cat_ids:
-            ann_by_img[ann['image_id']].append((cat_name, ann['bbox']))
+        team = cat_team.get(cat_id)
+        if team is None:
+            continue   # 只保留 offense / defense class（略過 ball, others, screen...）
+        ann_by_img[ann['image_id']].append((team, cat_map[cat_id], ann['bbox']))
 
     # 建 image_id → file_name 對應
     img_info = {img['id']: img['file_name'] for img in coco['images']}
 
-    # ── 抽 pairs ───────────────────────────────────────────────────────────────
-    pairs = []  # [(crop1_path, crop2_path, label), ...]
+    # ── 逐圖：先切好每個實例的 crop（只存一次），再產生同圖所有配對 ──────────────
+    pairs = []
     n_pos = 0
     n_neg = 0
-    n_no_handler = 0
+    n_too_few = 0     # 相關標注 < 2，無法配對
     n_load_fail = 0
     n_crop_fail = 0
+    # 配對類型統計（debug 用）
+    pair_type_count = collections.Counter()
 
     for img_id, anns in ann_by_img.items():
-        # 找 handler（pair 的 anchor）
-        handlers = [(c, b) for c, b in anns if c == 'ball_handler']
-        if not handlers:
-            n_no_handler += 1
+        # 至少要 2 個相關實例才能配對
+        if len(anns) < 2:
+            n_too_few += 1
             continue
 
         # 讀圖
         file_name = img_info[img_id]
-        img_path = IMG_DIR / file_name
-        img = cv2.imread(str(img_path))
+        img = cv2.imread(str(IMG_DIR / file_name))
         if img is None:
             n_load_fail += 1
             continue
 
-        # 對每個 handler（通常只有 1 個）開始抽 pairs
-        for h_idx, (_, h_bbox) in enumerate(handlers):
-            h_xyxy = scale_bbox(h_bbox, CROP_SCALE)
-            h_crop = crop_image(img, h_xyxy)
-            if h_crop is None:
+        # 切每個實例的 crop（同圖同實例只存一次）
+        # instances: [(crop_name, team, cat_name), ...]
+        instances = []
+        for idx, (team, cat_name, bbox) in enumerate(anns):
+            crop = crop_image(img, scale_bbox(bbox, CROP_SCALE))
+            if crop is None:
                 n_crop_fail += 1
                 continue
+            crop_name = f'{img_id}_{cat_name}_{idx}.jpg'
+            cv2.imwrite(str(CROP_DIR / crop_name), crop)
+            instances.append((crop_name, team, cat_name))
 
-            # 存 handler crop
-            h_crop_name = f'{img_id}_handler_{h_idx}.jpg'
-            cv2.imwrite(str(CROP_DIR / h_crop_name), h_crop)
+        # 同圖任兩人配對（免費榨出 O↔O、D↔D、O↔D）
+        for (c1, t1, cls1), (c2, t2, cls2) in itertools.combinations(instances, 2):
+            label = 1 if t1 == t2 else 0   # 同隊=1，異隊=0
+            if label == 1:
+                n_pos += 1
+            else:
+                n_neg += 1
+            # 記錄配對類型（O-O / D-D / O-D），兩端排序讓 key 一致
+            ptype = '-'.join(sorted([t1, t2]))
+            pair_type_count[ptype] += 1
 
-            # 找所有可能的「另一個 player」
-            for cls_name, t_bbox in anns:
-                if cls_name == 'ball_handler':
-                    continue  # 不跟自己配對
-
-                t_xyxy = scale_bbox(t_bbox, CROP_SCALE)
-                t_crop = crop_image(img, t_xyxy)
-                if t_crop is None:
-                    n_crop_fail += 1
-                    continue
-
-                # 決定 label
-                if cls_name in OFFENSE_CLASSES:
-                    label = 1
-                    n_pos += 1
-                elif cls_name in DEFENSE_CLASSES:
-                    label = 0
-                    n_neg += 1
-                else:
-                    continue
-
-                t_crop_name = f'{img_id}_{cls_name}_{len(pairs)}.jpg'
-                cv2.imwrite(str(CROP_DIR / t_crop_name), t_crop)
-
-                pairs.append({
-                    'crop1': h_crop_name,
-                    'crop2': t_crop_name,
-                    'label': label,
-                    'image_id': img_id,
-                    'crop2_class': cls_name,
-                })
+            pairs.append({
+                'crop1': c1,
+                'crop2': c2,
+                'label': label,
+                'image_id': img_id,
+                'pair_type': f'{cls1}+{cls2}',
+            })
 
     # ── 存 pairs metadata ──────────────────────────────────────────────────────
     pairs_path = OUT_DIR / 'pairs.json'
@@ -178,10 +168,14 @@ def main():
     print(f"  Total pairs:        {len(pairs)}")
     print(f"    Positive (同隊):  {n_pos}")
     print(f"    Negative (異隊):  {n_neg}")
+    print(f"  Pair types:")
+    print(f"    O-O (offense 互相, pos):  {pair_type_count.get('O-O', 0)}")
+    print(f"    D-D (defense 互相, pos):  {pair_type_count.get('D-D', 0)}")
+    print(f"    D-O (異隊, neg):          {pair_type_count.get('D-O', 0)}")
     print(f"  Skipped:")
-    print(f"    No handler:       {n_no_handler}")
-    print(f"    Image load fail:  {n_load_fail}")
-    print(f"    Crop fail:        {n_crop_fail}")
+    print(f"    < 2 relevant anns:  {n_too_few}")
+    print(f"    Image load fail:    {n_load_fail}")
+    print(f"    Crop fail:          {n_crop_fail}")
     print(f"\n  Crops saved → {CROP_DIR}")
     print(f"  Pairs metadata → {pairs_path}")
 

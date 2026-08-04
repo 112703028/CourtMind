@@ -54,6 +54,37 @@ ScreenNetPairwise（10 幀軌跡 → 預測 screen pair）
 
 ---
 
+## TeamSiamese 分隊模型（ResNet18 pairwise）
+
+分隊的**主要**模型，取代 sports.TeamClassifier（SigLIP）當首選，SigLIP 淪為 fallback。
+
+- **架構**：ResNet18 backbone（ImageNet pretrained，共享權重）→ 兩個 crop 各 encode 成 512-d → concat → MLP head → 同隊機率
+- **推論邏輯**：以每幀 handler 為 anchor，其他 player 跟 handler 做 pairwise 比較，`prob >= 0.5` → 同隊(offense)，否則 defense
+- **相關檔案**：`nba_data_pipeline/team_classifier/`（extract_pairs.py / train.py / model.py / inference.py）
+- **ckpt**：`models/team_siamese.pt`
+
+### 訓練資料（重要坑：defender 沒標 → 模型塌掉）
+
+- **踩到的大坑**：舊 COCO（`screen_v2.coco`）**108 號影片之後完全沒標 defender**（106-107 只標一半）。Siamese 只看過 positive pair（handler↔screener），從沒看過 negative（異隊） → 退化成「無論輸入什麼都輸出 prob=1.00」→ 新角度影片（114+）**整段抓不到 defense**。
+- **解法**：
+  1. **補標 defender** → 新資料集 `screen_data/screen_full_defender/`（108+ 全補齊，2087 圖 / 8395 標注）
+  2. **extract_pairs.py 改「同圖任兩人全配對」**（不再只用 handler 當 anchor）：
+     - offense↔offense（正）、defense↔defense（正）、offense↔defense（負）
+     - crop 每個實例只存一次（省磁碟）
+     - pairs 2910 → **10655**，negative 583 → **6245**（pos:neg 從 4:1 → 0.7:1）
+  3. **train.py 改按 image_id 切 train/val**（原本隨機切 pair 會讓同圖 crop 洩漏到 val，虛高分數）
+
+### 訓練結果
+
+| 版本 | 資料 | Total pairs | pos:neg | val F1 | 症狀 |
+|------|------|-------------|---------|--------|------|
+| 舊 | screen_v2.coco | ~2910 | 4:1 | 虛高 | 114+ prob 全 1.00，抓不到 defense |
+| **新** | screen_full_defender | **10655** | 0.7:1 | **0.932**（誠實）| screen_116 defense pool 恢復 5 人 |
+
+- 驗證：screen_116 重訓後 `[SIAM]` prob 不再全 1.00（異隊明確 0.00、同隊 1.00），偵測到 7 個擋拆事件
+
+---
+
 ## 訓練資料改進
 
 ### A. SAM2 取代 ByteTrack
@@ -150,11 +181,18 @@ basketball_analysis/
 ├── nba_data_pipeline/
 │   ├── convert_manual.py        # COCO → 訓練 npz（v2 多 screener）
 │   ├── finetune.py              # ScreenNet 訓練
-│   ├── inference.py             # 完整 inference（SAM2 + handler_detector）
+│   ├── inference.py             # 完整 inference（Siamese 分隊, baseline pool）
+│   ├── inference_defscore.py    # Siamese + YOLO defender_ratio 補救 pool（取法3）
+│   ├── inference_siglip.py      # 強制走 SigLIP fallback（Siamese 塌時對照用）
 │   ├── model.py                 # ScreenNetPairwise 定義
 │   ├── coco_to_yolo.py          # COCO → YOLO 格式轉換
 │   ├── test_ball_acquisition.py # 驗證 handler 偵測（舊 + YOLO 模式）
 │   ├── PROGRESS.md              # 詳細進度筆記
+│   ├── team_classifier/         # ⭐ TeamSiamese 分隊模型（ResNet18 pairwise）
+│   │   ├── extract_pairs.py     #   COCO → pair crops（同圖全配對）
+│   │   ├── train.py             #   訓練（image_id split）
+│   │   ├── model.py             #   TeamSiamese 定義
+│   │   └── inference.py         #   TeamAssignerSiamese（handler anchor）
 │   ├── checkpoints/
 │   │   ├── pretrain_best.pt
 │   │   ├── finetune_weak_best.pt
@@ -164,7 +202,11 @@ basketball_analysis/
 │       ├── positive_sequences.npz
 │       └── negative_sequences.npz
 ├── team_assigner/
-│   └── team_assigner.py         # 用 sports.TeamClassifier 無監督分隊
+│   └── team_assigner.py         # sports.TeamClassifier 無監督分隊（fallback）
+├── screen_data/
+│   ├── screen_v2.coco/          # 舊標注（108+ 缺 defender，已棄用）
+│   └── screen_full_defender/    # ⭐ 補齊 defender 的新標注（重訓 Siamese 用）
+├── team_classifier_data/        # extract_pairs 產出：crops/ + pairs.json
 ├── utils/
 │   └── video_utils.py           # read/save with imageio fallback
 ├── trackers/                    # ByteTrack 版（inference.py 已不用）
@@ -172,6 +214,7 @@ basketball_analysis/
 ├── models/
 │   ├── player_detector.pt           # YOLO 單 class 球員偵測
 │   ├── handler_detector.pt          # multi-class YOLO ⭐ (4 class)
+│   ├── team_siamese.pt              # ⭐ TeamSiamese 分隊 ckpt
 │   ├── court_keypoint_detector.pt
 │   ├── ball_detector_model.pt       # 舊版用
 │   └── sam2.1_hiera_large.pt
@@ -235,6 +278,10 @@ unset SSL_CERT_FILE
 11. **fashion-CLIP team assigner 分不穩** → 改用 sports.TeamClassifier (SigLIP + UMAP + K-means)
 12. **SigLIP HF 下載限速** → 設 `HF_TOKEN`
 13. **DGX docker 沒掛 utils/trackers 等 root 模組** → 在本地跑 inference
+14. **114+ 影片整段抓不到 defense** → COCO 108+ 沒標 defender，TeamSiamese 只學過 positive pair 塌成 prob 全 1.00 → 補標 `screen_full_defender` + extract_pairs 全配對 + 重訓
+15. **Siamese train/val 隨機切 pair 洩漏** → 同圖 crop 同時進 train+val，val 分數虛高 → 改按 image_id 切
+16. **VIPL Spark GPU OOM（SAM2 載不進）** → `nvidia-smi` 看到 vLLM 佔 84GB；GB10 統一記憶體共用，先確認 process 是誰的再決定 kill/等/換卡
+17. **stub cache 陳舊** → 換模型/改分隊後必須 `rm stubs/player_assignment_stub.pkl`，否則讀到舊結果（權限不足時在 docker 內刪）
 
 ---
 
@@ -270,6 +317,24 @@ python nba_data_pipeline/finetune.py \
     --epochs        30 \
     --lr            3e-4 \
     --batch         16
+```
+
+### 重訓 TeamSiamese 分隊模型
+
+```bash
+# 1. COCO → pair crops（同圖全配對）
+python nba_data_pipeline/team_classifier/extract_pairs.py
+# 2. 訓練（image_id split，存 models/team_siamese.pt）
+python nba_data_pipeline/team_classifier/train.py
+# ⚠ 換模型後記得刪 stub：rm stubs/player_assignment_stub.pkl
+```
+
+VIPL Spark（docker `basketball_analysis`，workdir `/workspace`）：
+```bash
+ssh vipl-spark "docker exec -w /workspace basketball_analysis bash -c '
+  cp models/team_siamese.pt models/team_siamese_old.pt && \
+  python nba_data_pipeline/team_classifier/extract_pairs.py && \
+  python nba_data_pipeline/team_classifier/train.py'"
 ```
 
 ### AV1 → H.264 影片轉檔

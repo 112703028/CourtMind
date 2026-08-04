@@ -179,11 +179,14 @@ def main():
         pairs = json.load(f)
     print(f"Total pairs: {len(pairs)}")
 
-    # Train/Val split
-    random.shuffle(pairs)
-    n_val = int(len(pairs) * VAL_RATIO)
-    val_pairs = pairs[:n_val]
-    train_pairs = pairs[n_val:]
+    # Train/Val split — 按 image_id 切，避免同張圖的 crop 同時進 train+val（資料洩漏）
+    image_ids = sorted({p['image_id'] for p in pairs})
+    random.shuffle(image_ids)
+    n_val_imgs = int(len(image_ids) * VAL_RATIO)
+    val_img_set = set(image_ids[:n_val_imgs])
+    train_pairs = [p for p in pairs if p['image_id'] not in val_img_set]
+    val_pairs   = [p for p in pairs if p['image_id'] in val_img_set]
+    print(f"Images: {len(image_ids)} (train {len(image_ids)-n_val_imgs} / val {n_val_imgs})")
     print(f"Train: {len(train_pairs)}  Val: {len(val_pairs)}")
 
     # 統計 train labels

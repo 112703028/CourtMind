@@ -617,14 +617,23 @@ def positions_for(pid, court_coords, window):
 
 
 def detect_screens(model, device, court_coords, player_assignment, ball_acquisition,
-                   threshold=0.70, debug=False, yolo_defender_pids=None):
+                   threshold=0.70, debug=False, class_votes=None,
+                   defender_ratio_weight=1.0, fake_handler_weight=1.5):
     """
     對每張 frame 預測掩護。回傳 list[None | dict]。
-    debug=True 時，對每個 score >= threshold 的視窗印出 offense/defense 分配與所有候選人分數。
-    yolo_defender_pids: set of player_id，YOLO 主要把他們認成 defender 的 id，會從 offense 候選剔除。
+
+    Pool 選擇邏輯（取法 3：Siamese + YOLO 加權）：
+      - defense_score = defense_confidence (Siamese 說異隊的幀數)
+                      + w1 * defender_ratio (handler_detector 說是 defender 的比例)
+                      + w2 * fake_handler_ratio (handler_detector 說是 handler 但實際不是 → 貼身防守)
+      - defense_pids = top N_DEFENSE by defense_score
+      - offense_pids = 剩餘 candidates 中 top N_OFFENSE-1 by offense_confidence
+
+    class_votes: dict[pid: Counter({class_id: count})] from handler_detector 4-class voting.
+                 class 0=handler, 1=screener, 2=defender, 3=others
     """
-    if yolo_defender_pids is None:
-        yolo_defender_pids = set()
+    if class_votes is None:
+        class_votes = {}
     num_frames = len(court_coords)
     per_frame = [None] * num_frames
 
@@ -633,6 +642,23 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
 
     roles_arr = np.array([0] + [1] * (N_OFFENSE - 1) + [2] * N_DEFENSE, dtype=np.int64)
     roles_t = torch.tensor(roles_arr).unsqueeze(0).to(device)  # (1, 10)
+
+    # smoothed 過的真 handler 集合 → 用來判斷「假 handler」（貼身防守被誤標）
+    smoothed_handlers = set(p for p in ball_acquisition if p is not None and p != -1)
+    n_frames = len(player_assignment)
+
+    # 印每個 pid 的 YOLO class 票數分佈（一次性）
+    if debug and class_votes:
+        print(f"  [DEBUG] Per-pid YOLO class votes "
+              f"(h=handler, s=screener, d=defender, o=others):")
+        for pid in sorted(class_votes.keys()):
+            c = class_votes[pid]
+            total = sum(c.values())
+            if total == 0:
+                continue
+            tag = " (smoothed handler)" if pid in smoothed_handlers else ""
+            print(f"    pid={pid}: h={c.get(0, 0)}, s={c.get(1, 0)}, "
+                  f"d={c.get(2, 0)}, o={c.get(3, 0)}, total={total}{tag}")
 
     for start in range(0, num_frames - SEQ_LEN + 1):
         window = list(range(start, start + SEQ_LEN))
@@ -659,75 +685,86 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
         handler_team = handler_team_votes.most_common(1)[0][0]
 
         # 蒐集視窗內出現過、有 court coords 的所有球員
-        all_pids = set()
+        candidates = set()
         for f_idx in window:
-            all_pids.update(court_coords[f_idx].keys())
-        all_pids.discard(handler_id)
+            candidates.update(court_coords[f_idx].keys())
+        candidates.discard(handler_id)
 
-        # 分隊（同樣用 majority vote，避免一兩幀漂移就把球員分錯邊）
-        offense_pids, defense_pids = [], []
-        for pid in all_pids:
-            team_votes = Counter()
-            for f_idx in window:
-                if pid in player_assignment[f_idx]:
-                    team_votes[player_assignment[f_idx][pid]] += 1
-
-            if not team_votes:
-                continue
-
-            team = team_votes.most_common(1)[0][0]
-
-            if team == handler_team:
-                # YOLO 主要認為這個 player 是 defender → 強制改判 defense
-                if pid in yolo_defender_pids:
-                    defense_pids.append(pid)
-                else:
-                    offense_pids.append(pid)
-            else:
-                defense_pids.append(pid)
-
-        if not offense_pids or handler_id not in court_coords[window[-1]]:
+        if not candidates or handler_id not in court_coords[window[-1]]:
             continue
+
+        # ── 兩個 cross-frame confidence ──
+        # offense_confidence[pid] = 跨幀被 Siamese 分到 handler_team 的次數
+        # defense_confidence[pid] = 跨幀被 Siamese 分到「非 handler_team」的次數
+        offense_confidence = {}
+        defense_confidence = {}
+        for pid in candidates:
+            same = sum(1 for f in player_assignment if f.get(pid) == handler_team)
+            diff = sum(1 for f in player_assignment
+                       if f.get(pid) is not None and f.get(pid) != handler_team)
+            offense_confidence[pid] = same
+            defense_confidence[pid] = diff
+
+        # ── 加上 YOLO defender 訊號算 defense_score ──
+        # 兩個 bonus：
+        #  1. defender_ratio: handler_detector 直接投他為 defender 的比例
+        #  2. fake_handler_ratio: 被投為 handler 但實際不是 smoothed handler → 貼身防守
+        defense_score = {}
+        yolo_dbg = {}   # for debug: (defender_bonus, fake_handler_bonus)
+        for pid in candidates:
+            counter = class_votes.get(pid, Counter())
+            total = sum(counter.values())
+            if total > 0:
+                defender_ratio = counter.get(2, 0) / total
+                handler_ratio = counter.get(0, 0) / total
+            else:
+                defender_ratio = 0.0
+                handler_ratio = 0.0
+            fake_handler_ratio = handler_ratio if pid not in smoothed_handlers else 0.0
+
+            defender_bonus = defender_ratio_weight * defender_ratio * n_frames
+            fake_handler_bonus = fake_handler_weight * fake_handler_ratio * n_frames
+
+            defense_score[pid] = (
+                defense_confidence[pid] + defender_bonus + fake_handler_bonus
+            )
+            yolo_dbg[pid] = (defender_bonus, fake_handler_bonus)
+
+        # ── 硬性取 top N_DEFENSE 個 defense ──
+        defense_pids = sorted(candidates, key=lambda p: -defense_score[p])[:N_DEFENSE]
+        defense_set = set(defense_pids)
+
+        # ── offense 從剩下的取 top N_OFFENSE-1 by offense_confidence ──
+        offense_pool = [p for p in candidates if p not in defense_set]
+        offense_pids = sorted(
+            offense_pool, key=lambda p: -offense_confidence[p]
+        )[:N_OFFENSE - 1]
+
+        if not offense_pids:
+            continue
+
+        if debug:
+            def_str = ', '.join(
+                f'{p}(D={defense_score[p]:.0f}=siam{defense_confidence[p]}'
+                f'+d{yolo_dbg[p][0]:.0f}+fh{yolo_dbg[p][1]:.0f})'
+                for p in defense_pids
+            )
+            off_str = ', '.join(f'{p}(O={offense_confidence[p]})' for p in offense_pids)
+            print(f"  [DEBUG] window={start:4d}  handler={handler_id}(team={handler_team})"
+                  f"\n    offense: {off_str}"
+                  f"\n    defense: {def_str}")
 
         handler_pos = positions_for(handler_id, court_coords, window)
 
-        # 取最靠近 handler 的 5 個防守球員（不夠就補 0）
+        # defense 已是 top N_DEFENSE，slot 位置按離 handler 距離排序
         defense_sorted = sorted(
             defense_pids,
             key=lambda p: np.linalg.norm(positions_for(p, court_coords, window)[-1] - handler_pos[-1])
-        )[:N_DEFENSE]
+        )
 
         defense_positions = np.zeros((N_DEFENSE, SEQ_LEN, 2), dtype=np.float32)
         for i, p in enumerate(defense_sorted):
             defense_positions[i] = positions_for(p, court_coords, window)
-
-        # 強制 offense 限制為 N_OFFENSE-1=4 個候選（加 handler 自己 = 5）
-        # 用「跨幀被分到 handler_team 的次數」當信心度排序，避免 team_assigner
-        # 短暫誤分 defender 進 offense 污染候選池
-        offense_confidence = {}
-        for pid in offense_pids:
-            same_team_count = sum(
-                1 for f_assign in player_assignment
-                if f_assign.get(pid) == handler_team
-            )
-            offense_confidence[pid] = same_team_count
-
-        # 留信心度最高的 N_OFFENSE-1 個
-        n_offense_keep = N_OFFENSE - 1
-        offense_pids_full = list(offense_pids)   # 保留完整列表用於 debug
-        offense_pids = sorted(
-            offense_pids,
-            key=lambda p: -offense_confidence[p],   # 高 → 低
-        )[:n_offense_keep]
-
-        if debug and len(offense_pids_full) > n_offense_keep:
-            kept = set(offense_pids)
-            dropped = [(p, offense_confidence[p]) for p in offense_pids_full if p not in kept]
-            kept_with_conf = [(p, offense_confidence[p]) for p in offense_pids]
-            kept_str = ', '.join(f'{p}({c})' for p, c in kept_with_conf)
-            drop_str = ', '.join(f'{p}({c})' for p, c in dropped)
-            print(f"  [DEBUG] offense conf filter (window={start}): "
-                  f"keep [{kept_str}], drop [{drop_str}]")
 
         # 對每個進攻候選人 c：把 c 放到 slot 1，其他進攻補 slot 2~4
         best_score = -1.0
@@ -774,11 +811,7 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
             scores_str = ', '.join(f'{p}={s:.2f}' for p, s in
                                    sorted(candidate_scores.items(), key=lambda x: -x[1]))
             picks_str = ', '.join(f'{p}({s:.2f})' for p, s in screener_picks)
-            print(f"  [DEBUG] window start={start:4d}  "
-                  f"handler={handler_id}(team={handler_team})  "
-                  f"offense={offense_pids}  defense={defense_sorted}  "
-                  f"→ scores: {scores_str}  "
-                  f"→ PICKS: {picks_str}")
+            print(f"    → scores: {scores_str}  → PICKS: {picks_str}")
 
         if screener_picks:
             # 掩護結果套用到視窗的中間幾幀
@@ -986,14 +1019,14 @@ def main():
         if is_ball_like:
             non_player_pids.add(pid)
 
-    # 4. 找出主要被認為是 defender 的（保留原本的 defender filter）
-    yolo_defender_pids = set()
+    # 4. 統計每個 pid 的主要 class（僅診斷用，實際 offense/defense pool 選擇改到
+    #    detect_screens 裡用 defense_score = Siamese conf + defender_ratio + fake_handler_ratio）
+    yolo_top_class = {}
     for pid, counter in class_votes.items():
         if not counter:
             continue
         top_class, _ = counter.most_common(1)[0]
-        if top_class == 2:
-            yolo_defender_pids.add(pid)
+        yolo_top_class[pid] = top_class
 
     print(f"  真球員 (>=1 YOLO 票): {sorted(yolo_real_player_pids)}")
     print(f"  非球員 (0 票 + 像球: 整段清掉): {sorted(non_player_pids)}")
@@ -1016,7 +1049,12 @@ def main():
             avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
             print(f"    pid={pid}: avg_h={avg_h:.0f}, avg_w={avg_w:.0f}, "
                   f"h/w={avg_aspect:.2f}, area={avg_area:.0f}")
-    print(f"  YOLO 認為的 defender (從 offense 剔除): {sorted(yolo_defender_pids)}")
+    _CLASS_NAMES = {0: 'handler', 1: 'screener', 2: 'defender', 3: 'others'}
+    top_by_class = {c: [] for c in _CLASS_NAMES}
+    for pid, tc in yolo_top_class.items():
+        top_by_class.setdefault(tc, []).append(pid)
+    for c, name in _CLASS_NAMES.items():
+        print(f"  YOLO top-class = {name}: {sorted(top_by_class.get(c, []))}")
 
     # 5. 把非球員的 bbox 整段清成 None → 下游(team_assigner/court_coords/draw)自動跳過
     n_cleared = 0
@@ -1089,7 +1127,7 @@ def main():
     per_frame = detect_screens(
         model, device, court_coords, player_assignment, ball_acquisition,
         threshold=args.threshold, debug=args.debug,
-        yolo_defender_pids=yolo_defender_pids,
+        class_votes=class_votes,
     )
 
     n_screen_frames = sum(1 for e in per_frame if e is not None)

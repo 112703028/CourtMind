@@ -886,8 +886,8 @@ def main():
                         help='YOLO 第一幀球員偵測模型（單 class）')
     parser.add_argument('--sam2_ckpt', default=SAM2_CHECKPOINT_DEFAULT)
     parser.add_argument('--sam2_config', default=SAM2_CONFIG_DEFAULT)
-    parser.add_argument('--siamese_team_model', default=str(PROJECT_ROOT / 'models' / 'team_siamese.pt'),
-                        help='訓練好的 Siamese team classifier，空字串 = 用舊 sports.TeamClassifier')
+    parser.add_argument('--siamese_team_model', default='',
+                        help='(SigLIP 版：預設空字串 → 強制走 sports.TeamClassifier)')
     parser.add_argument('--siamese_threshold', type=float, default=0.5,
                         help='Siamese 同隊判斷閾值')
     args = parser.parse_args()
