@@ -25,3 +25,7 @@ yolo_screen_dataset
 # 大型壓縮檔 / 可重新生成的訓練資料
 *.zip
 team_classifier_data/
+
+# 密鑰（絕對不能進 git）
+.env
+.env.local

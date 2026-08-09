@@ -862,6 +862,45 @@ def draw_predictions(frames, player_tracks, per_frame_screens):
     return out
 
 
+# ── fps 偵測 ─────────────────────────────────────────────────────────────────────
+
+def get_video_fps(video_path, fallback=30.0):
+    """
+    偵測影片 fps。這批影片 fps 混雜（~30 與 ~60 都有），必須逐支偵測。
+    優先用 ffprobe（連 av1 都讀得到，cv2 對 av1 抓不到 fps），失敗才 fallback cv2 / 常數。
+    """
+    import subprocess
+    # 1. ffprobe：讀 r_frame_rate（可能是 '30/1' 或 '29893/500' 這種分數）
+    try:
+        out = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', video_path],
+            capture_output=True, text=True, timeout=30)
+        val = out.stdout.strip()
+        if '/' in val:
+            num, den = val.split('/')
+            fps = float(num) / float(den)
+        elif val:
+            fps = float(val)
+        else:
+            fps = 0
+        if fps and fps > 0:
+            return fps
+    except Exception:
+        pass
+    # 2. cv2 fallback（h264 等 cv2 讀得到的 codec）
+    try:
+        _cap = cv2.VideoCapture(video_path)
+        fps = _cap.get(cv2.CAP_PROP_FPS)
+        _cap.release()
+        if fps and fps > 0:
+            return fps
+    except Exception:
+        pass
+    # 3. 都失敗
+    return fallback
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -890,6 +929,8 @@ def main():
                         help='訓練好的 Siamese team classifier，空字串 = 用舊 sports.TeamClassifier')
     parser.add_argument('--siamese_threshold', type=float, default=0.5,
                         help='Siamese 同隊判斷閾值')
+    parser.add_argument('--fps', type=float, default=None,
+                        help='影片 fps（換算秒數用）；不給則從影片自動偵測，失敗 fallback 30')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -901,7 +942,10 @@ def main():
     if not frames:
         print("ERROR: cannot read video")
         return
-    print(f"  {len(frames)} frames")
+
+    # fps：優先用 --fps，否則 ffprobe 逐支偵測（這批 30/60fps 混雜，不能寫死）
+    fps = args.fps if args.fps else get_video_fps(args.video)
+    print(f"  {len(frames)} frames @ {fps:.2f} fps  (時長 {len(frames)/fps:.1f}s)")
 
     use_stub = not args.no_stub
     os.makedirs(args.stub_dir, exist_ok=True)
@@ -1073,6 +1117,12 @@ def main():
     n_with_coords = sum(1 for fc in court_coords if fc)
     print(f"  {n_with_coords}/{len(frames)} frames have homography")
 
+    # 修正 court keypoint / homography 的左右鏡像閃爍（球場對稱 → 某些幀被投成鏡像，
+    # 座標每隔幾幀翻一次會讓下游戰術分析全錯）。從源頭修好，dump 的 pkl 就是乾淨的。
+    from tactics_tools import deflicker_court_coords
+    court_coords, n_flip = deflicker_court_coords(court_coords)
+    print(f"  de-flicker: 修正 {n_flip}/{len(frames)} 幀 homography 鏡像")
+
     # ── Model ──────────────────────────────────────────────────────────────
     print(f"Loading model: {args.ckpt}")
     ckpt = torch.load(args.ckpt, map_location='cpu')
@@ -1113,11 +1163,32 @@ def main():
     if cur is not None:
         events.append(cur)
 
+    # 注意：擋拆接觸幀(screen_frame)、roll/pop、coverage 都是「分析」，
+    # 一律在 tactics_tools / describe_screens 讀 pkl 時算，inference 不碰
+    # （感知與分析解耦：改分析邏輯不用重跑 15 分鐘 SAM2）。
+
+    def _fmt(fr):
+        """幀 → 'f<幀>(秒)'，秒用 fps 換算。"""
+        return f"f{fr}({fr / fps:.1f}s)"
+
     print(f"\nDetected {len(events)} screen events:")
     for ev in events:
-        print(f"  Frames {ev['start']:4d}-{ev['end']:4d}: "
+        print(f"  {_fmt(ev['start'])} - {_fmt(ev['end'])}  "
               f"handler={ev['handler_id']}, screener={ev['screener_id']}, "
               f"score={ev['score']:.3f}")
+
+    # ── Dump 事件 + 座標，給 tactics_tools.py 判斷戰術（解耦感知與分析）──────────
+    import pickle
+    dump_path = os.path.splitext(args.output_video)[0] + '_events.pkl'
+    with open(dump_path, 'wb') as f:
+        pickle.dump({
+            'events': events,
+            'court_coords': court_coords,           # list[dict[pid:(x_ft,y_ft)]]
+            'player_assignment': player_assignment,  # list[dict[pid:team]]，team1=進攻
+            'court_dims': (COURT_W_FT, COURT_H_FT),  # (91.8, 49.2)
+            'fps': fps,                              # 換算秒數用
+        }, f)
+    print(f"  事件資料 dump → {dump_path}")
 
     # ── Draw + save ────────────────────────────────────────────────────────
     print(f"\nDrawing predictions...")
