@@ -76,23 +76,65 @@ SAM3（Meta 2026-03，arXiv 2511.16719）的 **Promptable Concept Segmentation**
 都會被刪除**，修它是投資在即將消失的架構上 → **不做**。若時間差期間需要乾淨結果，
 用「下游按已標 id 手動排除」止血（SAM3 到位後直接丟掉），不改感知層。
 
-### 阶段 2：SAM3 概念驗證（硬體到位後，重寫前必做）
+### 阶段 2：SAM3 概念驗證 ✅ 已通過（2026-09-06）
 
-**目的**：驗證「SAM3 的 `"basketball player"` concept 能在**我方影片**上乾淨只框球員」
-這個**未驗證假設**。論文在通用資料集強，但我方影片有特定視角/畫質，裁判也在球場上、
-也是人，SAM3 可能把裁判當 "basketball player"，或漏框被遮擋球員。
+**目的**：驗證「SAM3 的 `"basketball player"` concept 能在**我方影片**上乾淨只框球員」。
 
-**做法**：
-- 用 SAM3 官方 code（github.com/facebookresearch/sam3）
-- 輸入 1-2 支代表影片（例如 v130 污染最嚴重、v121 有籃框+球+裁判）
-- concept prompt = `"basketball player"`
-- 人工看輸出：是否乾淨只框 10 個真球員、排除裁判/籃框/球/計時器
+**結果（v130，污染最嚴重那支，60 幀）**：
+- SAM3 只框出 **10 個 obj = 正好 10 個真球員**（SAM2 舊版追 14 個，混 4 個非球員）
+- `out_probs` 全部 0.80~0.96（高信心是 basketball player）
+- 人工看標框影片：**非常乾淨**，裁判/籃框/球/計時器都被排除
+- **結論：concept prompt 從語義層排除非球員的假設成立 → 進阶段 3**
 
-**驗收**：SAM3 能明顯乾淨排除非球員（至少優於現有 SAM2+過濾）→ 進阶段 3。
-若 SAM3 也分不乾淨（例如把裁判當球員）→ 重新評估（negative exemplar refine，
-或這條路也不通則回頭想別的）。
+**驗證工具**：`nba_data_pipeline/sam3_concept_check.py`（ffmpeg 抽 jpg → SAM3 concept
+propagate → 標框影片 + 每幀 obj 數統計）。
 
-**成本**：小（官方 code + 幾支影片），但省掉可能白寫的整個追蹤層重寫。
+**SAM3 video API（實跑確認）**：
+```python
+from sam3.model_builder import build_sam3_video_predictor
+predictor = build_sam3_video_predictor(gpus_to_use=[0])
+r = predictor.handle_request(dict(type="start_session", resource_path=jpg_dir_or_mp4))
+sid = r["session_id"]
+predictor.handle_request(dict(type="add_prompt", session_id=sid,
+                              frame_index=0, text="basketball player"))
+for r in predictor.handle_stream_request(dict(type="propagate_in_video", session_id=sid)):
+    outputs_per_frame[r["frame_index"]] = r["outputs"]
+```
+每幀 `outputs` dict 結構（鍵名）：
+- `out_obj_ids`：array[int]，追蹤物體 id
+- `out_probs`：array[float]，是該 concept 的信心
+- `out_boxes_xywh`：歸一化 xywh 框
+- `out_binary_masks`：每物體 binary mask
+- `frame_stats`
+
+負範例 refine（若 concept 漏抓/誤抓）：`add_prompt` 帶 `points` + `point_labels`
+（1=正/前景, 0=負/去除）+ `obj_id`。
+
+### 阶段 2 環境搭建（踩過的坑，重跑必看）
+
+**根因坑：GB10 太新（compute capability sm_121, ARM64 Grace Blackwell），舊 CUDA
+編不出它的 kernel。**
+
+- ❌ 在舊 container `nvcr.io/nvidia/pytorch:25.03-py3`（CUDA 12.8）裝 sam3：
+  `nvrtc: error: invalid value for --gpu-architecture` — nvrtc 太舊不認 sm_121。
+  手動裝 torch 2.10 也沒用（底層 CUDA/nvrtc 還是 image 的 12.8）。
+- ❌ `TORCH_CUDA_ARCH_LIST="12.0"` 強制 sm_120 也沒解（nvrtc 本身太舊）。
+- ✅ **改用 `nvcr.io/nvidia/pytorch:25.12-py3`（CUDA 13.1 + torch 2.10 nv 版）**：
+  `torch.prod` 測試通過（能編 GB10 kernel）。DGX 上這 image 本地已有。
+- **開 container**（獨立於 sam2 的 basketball_analysis container）：
+  ```bash
+  docker run -d --name sam3_env --gpus all --ipc=host \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
+    -v /home/vipl/timwu/basketball_analysis:/workspace -w /workspace \
+    nvcr.io/nvidia/pytorch:25.12-py3 sleep infinity
+  ```
+- **裝依賴**：`pip install -e .`（在挂載的 /workspace/sam3）用 image 自帶 torch，
+  不重裝 torch（會把 numpy 降到 1.26.4，無害）；另 `pip install
+  opencv-python-headless` + `apt install ffmpeg`（image 沒帶）。
+- **HF 認證**：image 的 `hf` CLI 壞了（typer 版本衝突），改用環境變數
+  `export HF_TOKEN="hf_xxx"`（huggingface_hub 直接讀，繞過 CLI）。
+- **影片讀取**：container cv2 沒 FFMPEG（同 CLAUDE.md 坑10），腳本改用 ffmpeg
+  抽 jpg 資料夾餵 SAM3（SAM3 支援 jpg 資料夾或 mp4）。
 
 ### 阶段 3：重寫追蹤層整合 SAM3（阶段 2 過關才做）
 
