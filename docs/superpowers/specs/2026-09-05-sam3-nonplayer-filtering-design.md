@@ -89,6 +89,17 @@ SAM3（Meta 2026-03，arXiv 2511.16719）的 **Promptable Concept Segmentation**
 **驗證工具**：`nba_data_pipeline/sam3_concept_check.py`（ffmpeg 抽 jpg → SAM3 concept
 propagate → 標框影片 + 每幀 obj 數統計）。
 
+**泛化（3 支，60 幀 each）**：
+| 影片 | 結果 |
+|------|------|
+| v130 | 完美，只框 10 球員，非球員全排除 |
+| v129 | 只漏 1 裁判（3 個中的 1 個，看不出差異）+ 抓到 1 替補（可接受，是球員）|
+| v128 | 只漏 1 裁判（**在動的那個**，不動的沒抓）+ 抓到 1 替補（可接受）|
+
+模式一致：SAM3 從 14 個混亂 obj（SAM2）→ 收斂到「10 球員 + 偶爾 1 裁判 + 偶爾 1 替補」。
+漏網裁判疑似「跑動姿態更像球員」（v128 支持，v129 不明顯）→ 阶段3 用負範例 refine 補救。
+替補是真球員，下游擋拆分析會自然忽略（不參與擋拆），可接受。
+
 **SAM3 video API（實跑確認）**：
 ```python
 from sam3.model_builder import build_sam3_video_predictor
@@ -146,6 +157,38 @@ for r in predictor.handle_stream_request(dict(type="propagate_in_video", session
   / `_filter_player_like_bboxes` 可能整組被 concept prompt 取代
 - 下游 `court_coords` / `player_assignment` / handler 配對介面盡量保持不變，
   讓 `tactics_tools.py` 分析層不用改
+
+## 附帶發現：持球偵測抓不到傳球/接球（根因＝訓練資料標註偏差）
+
+**現象**：v117 射手 #9 繞出來接球持球「不到 2 秒」（~30-60 幀），但
+handler_detector 只標到 3 幀 → 平滑後被當噪音清掉 → 擋拆分析看不到接球者。
+
+**排查過程**：
+1. 先改 `smooth_ball_acquisition`（min_total_frames 一刀切 → 連續段邏輯），
+   傳球者能保留了，但射手 #9（3 幀）跟噪音 #8（3 幀）幀數一樣，平滑區分不了。
+2. 加 `[RAW]` 診斷：raw 分布 `{6:160, 8:3, 9:3, 3:2, 10:1}` — #9 真的只有 3 幀。
+3. **直接查訓練資料 COCO（`screen_data/screen_v2.coco`）**：
+   - 每幀幾乎只有 1 個 ball_handler 標註（「多於1個bh的幀」幾乎全 0）
+   - ball_handler 中心 x 座標**逐幀平滑連續**（一路跟同一個人），傳球時**沒有跳位**
+   - → **標註原則是「框持球發起者滿全程」，傳球後沒改框接球者**
+
+**根因**：handler_detector 學到的是「這球的主角/發起者是誰」，**不是「此刻誰持球」**。
+接球射手從沒被標成 ball_handler → 模型認不出 → 傳球/接球抓不到。這不是平滑、
+不是 conf、不是 IOU 配對問題，是訓練資料的標註定義。
+
+**解法（已定：先 B 再 A）**：
+- **方向 B（先試）**：handler_detector 繼續用（抓主要持球者，94% 準），**另用 SAM3
+  追球 "basketball" → 球在誰手上 → 補傳球/接球換手偵測**。不用重標，跟 SAM3 整合合流。
+  兩訊號各司其職。**前置未驗證**：SAM3 追球在我方影片準不準、能否穩定判「球在誰手上」
+  → 需比照球員驗證先小成本試（可加進 sam3_concept_check.py，prompt 換 "basketball"）。
+- **方向 A（B 沒用才做）**：重標 153 支影片的 ball_handler 為「每幀此刻持球者」+ 重訓。
+
+**已改但待驗**：`smooth_ball_acquisition` 已改連續段邏輯（`min_run`/`fill_gap`），
+本身是對的改善（傳球者保留、噪音/漏幀處理更好），單元測試通過。與方向 B 不衝突，
+可保留。
+
+**這也直接關係 handoff 偵測**（2026-09-03 spec）：handoff = 換手，同樣需要能看到
+「球從 A 到 B」。SAM3 追球若可行，handoff 也受益。
 
 ## 附帶未解問題（獨立追蹤，不阻塞 SAM3）
 

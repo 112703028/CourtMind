@@ -24,6 +24,7 @@ Usage:
 import os
 import sys
 import re
+import time
 import argparse
 import tempfile
 import shutil
@@ -159,11 +160,15 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
     # SAM2 需要影格目錄
     tmp_dir = Path(tempfile.mkdtemp(prefix='sam2_frames_'))
     try:
+        _t = time.time()
         for i, frame in enumerate(frames):
             cv2.imwrite(str(tmp_dir / f'{i:05d}.jpg'), frame)
+        print(f"  [TIMING] write {len(frames)} jpg frames: {time.time()-_t:.1f}s")
 
+        _t = time.time()
         inference_state = predictor.init_state(video_path=str(tmp_dir))
         predictor.reset_state(inference_state)
+        print(f"  [TIMING] SAM2 init_state: {time.time()-_t:.1f}s")
         autocast_dtype = torch.bfloat16 if device == 'cuda' else torch.float32
 
         # 共用：把 propagate 結果寫到 raw_tracks
@@ -183,9 +188,11 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
             為了讓「中途加的 obj」也能倒推到 frame 0，對每個 prompt frame 都做一次 reverse。
             """
             # Forward：從最早 prompt 往後傳播
+            _t = time.time()
             with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
                 for f_idx, obj_ids, masks in predictor.propagate_in_video(inference_state):
                     _absorb(raw_tracks, f_idx, obj_ids, masks)
+            print(f"  [TIMING]   forward propagate: {time.time()-_t:.1f}s")
 
             # Reverse：對每個 prompt frame 個別 reverse propagate
             # 確保「frame K 加的 new obj」能倒推回 frame 0 ~ K-1
@@ -197,11 +204,17 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
 
             with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
                 for start_f in sorted(prompt_frames_to_reverse, reverse=True):
+                    _t = time.time()
                     for f_idx, obj_ids, masks in predictor.propagate_in_video(
                             inference_state, reverse=True, start_frame_idx=start_f):
                         _absorb(raw_tracks, f_idx, obj_ids, masks)
+                    print(f"  [TIMING]   reverse propagate from frame {start_f}: "
+                          f"{time.time()-_t:.1f}s")
+            if not prompt_frames_to_reverse:
+                print(f"  [TIMING]   reverse propagate: (0 趟)")
 
         # === Pass 1：基礎 init + propagate ===
+        _t_pass1 = time.time()
         next_obj_id = 1
         with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
             for xyxy in init_boxes:
@@ -214,8 +227,10 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
         for i, xyxy in enumerate(init_boxes):
             raw_tracks[init_idx][i + 1] = {'bbox': xyxy.tolist()}
         _full_propagate(raw_tracks)   # Pass 1 只有 init_idx 這個 prompt frame
+        print(f"  [TIMING] Pass 1 (init + propagate): {time.time()-_t_pass1:.1f}s")
 
         # === Pass 2：整段均勻掃描，找新球員 ===
+        _t_pass2 = time.time()
         scan_indices = list(range(0, len(frames), scan_interval))
         new_prompts = []   # (frame_idx, bbox)
         n_init = next_obj_id - 1
@@ -276,12 +291,15 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
 
         if not new_prompts:
             print(f"  Pass 2 掃描 {len(scan_indices)} 幀，沒發現新球員")
+            print(f"  [TIMING] Pass 2 (YOLO scan, 無新球員): {time.time()-_t_pass2:.1f}s")
             predictor.reset_state(inference_state)
             return raw_tracks
 
         print(f"  Pass 2 掃描 {len(scan_indices)} 幀，發現 {len(new_prompts)} 個新球員")
+        print(f"  [TIMING] Pass 2 (YOLO scan): {time.time()-_t_pass2:.1f}s")
 
         # === Pass 3：加新 prompts + 重新 propagate ===
+        _t_pass3 = time.time()
         with torch.inference_mode(), torch.autocast(device, dtype=autocast_dtype):
             for frame_idx, ybox in new_prompts:
                 predictor.add_new_points_or_box(
@@ -301,6 +319,8 @@ def run_sam2_tracks(frames, player_model, predictor, device='cuda',
         # 確保中途加的 obj_id 也能倒推到 frame 0
         new_prompt_frames = [f for f, _ in new_prompts]
         _full_propagate(raw_tracks, extra_prompt_frames=new_prompt_frames)
+        print(f"  [TIMING] Pass 3 (re-propagate, {len(new_prompts)} 新球員): "
+              f"{time.time()-_t_pass3:.1f}s")
 
         print(f"  最終 SAM2 obj_ids: {next_obj_id - 1} 個")
         predictor.reset_state(inference_state)
@@ -451,7 +471,7 @@ def detect_player_class_votes(frames, player_tracks, handler_model,
 
 
 def detect_handler_per_frame(frames, player_tracks, handler_model,
-                             conf=0.4, iou_threshold=0.3):
+                             conf=0.4, iou_threshold=0.3, debug=False):
     """
     對每幀跑 handler_detector.pt（multi-class YOLO），找 class==0（ball_handler）。
     與該幀 player_tracks 的 player_id 做 IOU 配對，回 list[player_id or -1]。
@@ -573,31 +593,60 @@ def player_court_coords(player_tracks, court_keypoints):
 
 # ── Ball acquisition 平滑 ──────────────────────────────────────────────────────
 
-def smooth_ball_acquisition(ball_acquisition, window=15, min_total_frames=20):
+def smooth_ball_acquisition(ball_acquisition, min_run=4, fill_gap=8):
     """
-    對 ball_acquisition 做時間平滑 + 噪音過濾。
+    對 ball_acquisition 做「連續段」平滑，保留傳球/換手。
 
-    1. 過濾：在整段影片出現少於 min_total_frames 幀的 player 視為誤偵測，全部設為 -1。
-    2. 平滑：每幀取 [i-window, i+window] 範圍內的多數決 player 當作 handler。
+    舊版用「整段總幀數 < min_total_frames 就清掉」+「對稱窗口多數決」，會把傳球
+    抹平——持球最久的人票數輾壓、短暫接球者被整段清掉，結果整段只剩 1 個 handler。
+    新版改成連續段邏輯，區分「單幀抖動」vs「真實傳球」：
+
+      1. 壓成連續持球段（run），略過 -1/None 的空隙。
+      2. 清掉「短且孤立」的段（run 長度 < min_run = 單幀誤判抖動）→ 設 -1。
+      3. 保留夠長的段（>= min_run），不管該 pid 整段總共持球多久 → 傳球者接球
+         持球一小段也留得住。
+      4. 填補同一持球者段內的 -1 空洞（handler_detector 只 ~78% 幀抓到，中間會漏）：
+         相鄰兩個「同 pid」的段之間、間隔 <= fill_gap 的 -1 一律填成該 pid；
+         跨不同 pid 的空隙不填（可能是傳球途中/無人持球）。
+
+    參數：
+      min_run  : 連續段最短保留幀數（< 此視為噪音抖動）
+      fill_gap : 同持球者兩段之間，最多補幾幀 -1 空洞
     """
     n = len(ball_acquisition)
     if n == 0:
         return ball_acquisition
 
-    handler_freq = Counter(p for p in ball_acquisition if p is not None and p != -1)
-    valid = {p for p, cnt in handler_freq.items() if cnt >= min_total_frames}
-    filtered = [p if p in valid else -1 for p in ball_acquisition]
+    # 1. 壓成連續段 [(pid, start, end), ...]，把 -1/None 當空隙略過
+    runs = []
+    for f, p in enumerate(ball_acquisition):
+        if p is None or p == -1:
+            continue
+        if runs and runs[-1][0] == p and f - runs[-1][2] == 1:
+            runs[-1] = (p, runs[-1][1], f)   # 延續同 pid 的連續段
+        else:
+            runs.append((p, f, f))
 
-    smoothed = list(filtered)
-    for i in range(n):
-        lo, hi = max(0, i - window), min(n, i + window + 1) # 取以 i 為中心、半寬 window 的視窗範圍
-        votes = Counter(p for p in filtered[lo:hi] if p != -1)
-        if votes:
-            smoothed[i] = votes.most_common(1)[0][0]
+    # 2. 只保留夠長的段（>= min_run），清掉短抖動
+    kept = [(p, s, e) for (p, s, e) in runs if (e - s + 1) >= min_run]
 
+    smoothed = [-1] * n
+    for p, s, e in kept:
+        for f in range(s, e + 1):
+            smoothed[f] = p
+
+    # 4. 填補同一持球者相鄰段之間的短空洞
+    for i in range(len(kept) - 1):
+        p0, _, e0 = kept[i]
+        p1, s1, _ = kept[i + 1]
+        if p0 == p1 and (s1 - e0 - 1) <= fill_gap:
+            for f in range(e0 + 1, s1):
+                smoothed[f] = p0
+
+    valid = sorted(set(p for p, _, _ in kept))
     n_changed = sum(1 for a, b in zip(ball_acquisition, smoothed) if a != b)
     print(f"  smoothed ball_acquisition: {n_changed}/{n} frames changed, "
-          f"valid handlers={sorted(valid)}")
+          f"valid handlers={valid}  (min_run={min_run}, {len(kept)} runs)")
     return smoothed
 
 
@@ -736,8 +785,11 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
 
         offense_position_cache = {p: positions_for(p, court_coords, window) for p in offense_pids}
 
-        # 遍歷所有可能的進攻球員（offense_pids），並將他們模擬為「潛在掩護者」
-        for candidate in offense_pids:
+        # 把每個 candidate 的 traj 疊成一個 batch，一次 forward（取代逐一 forward，
+        # 省下 (candidate 數量 - 1) 次 kernel launch；數學完全相同）。
+        traj_batch = np.zeros((len(offense_pids), N_PLAYERS, SEQ_LEN, 2),
+                              dtype=np.float32)
+        for b, candidate in enumerate(offense_pids):
             others = [p for p in offense_pids if p != candidate]
             # slot 2~4：按與 handler 的距離排序，最近的排前面
             others_sorted = sorted(
@@ -745,22 +797,23 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
                 key=lambda p: np.linalg.norm(offense_position_cache[p][-1] - handler_pos[-1])
             )[:N_OFFENSE - 2]
 
-            traj = np.zeros((N_PLAYERS, SEQ_LEN, 2), dtype=np.float32)
-            traj[0] = handler_pos
-            traj[1] = offense_position_cache[candidate]
+            traj_batch[b, 0] = handler_pos
+            traj_batch[b, 1] = offense_position_cache[candidate]
             for i, p in enumerate(others_sorted):
-                traj[2 + i] = offense_position_cache[p]
+                traj_batch[b, 2 + i] = offense_position_cache[p]
             for i in range(N_DEFENSE):
-                traj[N_OFFENSE + i] = defense_positions[i]
+                traj_batch[b, N_OFFENSE + i] = defense_positions[i]
 
-            traj_t = torch.tensor(traj).unsqueeze(0).to(device)  # (1, 10, T, 2)
+        traj_t = torch.from_numpy(traj_batch).to(device)          # (C, 10, T, 2)
+        roles_batch = roles_t.expand(len(offense_pids), -1)       # (C, 10)
 
-            with torch.no_grad():
-                logits = model(traj_t, roles_t)  # (1, 20)
+        with torch.no_grad():
+            logits = model(traj_t, roles_batch)                   # (C, 20)
+        probs = torch.sigmoid(logits)[:, pair_idx_01]             # (C,)
 
-            prob = torch.sigmoid(logits)[0, pair_idx_01].item()
+        for b, candidate in enumerate(offense_pids):
+            prob = probs[b].item()
             candidate_scores[candidate] = prob
-
             if prob > best_score:
                 best_score = prob
                 best_screener = candidate
@@ -915,10 +968,10 @@ def main():
                         help='Disable stub caching (recompute everything)')
     parser.add_argument('--debug', action='store_true',
                         help='Print debug info per predicted window')
-    parser.add_argument('--ba_smooth_window', type=int, default=15,
-                        help='Handler smoothing window (frames each side)')
-    parser.add_argument('--ba_min_frames', type=int, default=20,
-                        help='Min total frames a player must be handler to be considered valid')
+    parser.add_argument('--ba_min_run', type=int, default=4,
+                        help='連續持球段最短保留幀數（< 此視為單幀誤判抖動）')
+    parser.add_argument('--ba_fill_gap', type=int, default=8,
+                        help='同一持球者相鄰段之間，最多補幾幀 -1 空洞')
     parser.add_argument('--handler_model', default=HANDLER_MODEL_DEFAULT,
                         help='multi-class YOLO 模型路徑（class 0 = ball_handler）')
     parser.add_argument('--player_model', default=PLAYER_MODEL_DEFAULT,
@@ -972,7 +1025,8 @@ def main():
     # ── Handler detection: multi-class YOLO 直接抓 ball_handler ──────────────
     print(f"Loading handler detector: {args.handler_model}")
     handler_model = YOLO(args.handler_model)
-    ball_acquisition = detect_handler_per_frame(frames, player_tracks, handler_model)
+    ball_acquisition = detect_handler_per_frame(frames, player_tracks, handler_model,
+                                                debug=args.debug)
 
     # ── YOLO 整段 class 投票（class 0=handler, 1=screener, 2=defender, 3=other）──
     print("YOLO per-player class voting...")
@@ -1107,8 +1161,24 @@ def main():
         )
 
     # ── 時間平滑 handler（YOLO 偵測可能還有少數漏抓，用多數決補）─────────────
+    # DEBUG：印平滑「前」的 raw pid 分布 + 非主要持球者出現在哪些幀（查射手接球）
+    _raw_dist = Counter(p for p in ball_acquisition if p is not None and p != -1)
+    print(f"  [RAW] ball_acquisition pid 分布（平滑前）: {dict(_raw_dist.most_common())}")
+    if args.debug and _raw_dist:
+        _main = _raw_dist.most_common(1)[0][0]
+        for _pid in _raw_dist:
+            if _pid == _main:
+                continue
+            _frames = [f for f, p in enumerate(ball_acquisition) if p == _pid]
+            print(f"  [RAW] 非主要持球者 pid{_pid} 出現在幀: {_frames}")
+        # 完整逐幀時間軸（每 10 幀一格，看誰持球的變化；. = 無偵測）
+        _tl = ''.join('.' if (p is None or p == -1) else
+                      (str(p)[-1] if p != _main else '=') for p in ball_acquisition)
+        print(f"  [RAW] 逐幀時間軸（=主要持球者{_main}, .=無, 其餘=該pid末碼）:")
+        for _i in range(0, len(_tl), 60):
+            print(f"    f{_i:3d}: {_tl[_i:_i+60]}")
     ball_acquisition = smooth_ball_acquisition(
-        ball_acquisition, window=args.ba_smooth_window, min_total_frames=args.ba_min_frames
+        ball_acquisition, min_run=args.ba_min_run, fill_gap=args.ba_fill_gap
     )
 
     # ── Court coords ───────────────────────────────────────────────────────

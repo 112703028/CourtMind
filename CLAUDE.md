@@ -157,20 +157,117 @@ Roboflow 公開 notebook 不追蹤球，改用 **multi-class 偵測**直接判�
 
 ---
 
+## 戰術分析層（新增：擋拆偵測 → 戰術解說）
+
+擋拆偵測穩定後，往上加一層：不只框出 handler/screener，還要**判斷戰術並生成解說**。
+
+### 核心架構決策
+
+> **規則負責「看得準」，LLM 負責「說得好」**
+
+```
+軌跡（court_coords）→【規則，tactics_tools.py】→ 事實（roll/pop、擋誰、防守方式）
+                                                        ↓
+                                          【LLM，describe_screens.py / tactics_agent.py】
+                                                        ↓
+                                                    戰術解說
+```
+
+LLM 不該自己看座標判斷幾何（會出錯，實測過：eyeball 短軌跡把 roll 判成 pop）。規則把軌跡精確算成事實，LLM 專心做語言/命名/綜合判斷。
+
+### `tactics_tools.py`（幾何規則，感知與分析解耦）
+
+inference.py 只負責 dump 原始資料（`court_coords` / `player_assignment` / `events` / `fps`）到 pkl；所有戰術判斷都在讀 pkl 後才算，改邏輯不用重跑 15 分鐘的 SAM2。
+
+**資料清理**（實跑影片才發現的髒資料問題）：
+- `deflicker_court_coords()`：court keypoint 偵測對稱球場時左右鏡像閃爍（v117 曾 102/240 幀翻轉），逐幀比對鏡像後是否更連續來修正
+- `merge_swapped_ids()`：SAM2 把同一實體球員切成兩個 id（如 #9/#10 交替出現、位置連續）→ 偵測「幾乎不共存 + 交替時位置連續」自動合併
+
+**擋拆偵測**（`find_screen_instances`）：
+- ScreenNet 輸出是**連續關係**（每幀答「X 現在有沒有在擋」），不是離散事件，且同一 screener 會被連續開火、身分逐幀跳動
+- 用「screener 撞防守者的最緊接觸」定位離散的擋拆時間點（而非用 ScreenNet 的分數）
+- **near-handler filter**：接觸時 screener 必須離 handler 夠近（擋是為持球者設的）→ 濾掉 pop 投籃、路過等假接觸
+- 用**整段多數決**判斷球員隊伍（不用單幀），避免分隊雜訊在擋拆瞬間誤把防守者當進攻排除掉
+- 同一 screener 在一次事件內只留接觸最緊的一筆（去重）
+- 支援 double screen（同時）/ staggered screen（先後）：按 screener 跨度重疊程度判斷
+
+**其他規則**：`classify_roll_pop`（掩護後距籃框變化，參考點用「擋拆後固定時間窗內最後有效位置」而非事件邊界）、`classify_coverage`（switch/hedge/drop，防守者辨識用「擋拆前」而非擋拆瞬間，避免 handler/screener 貼太近時最近防守者算成同一人）、`screened_defender`（掩護者擋的是哪個防守者，用最小接觸距離，不是「誰在附近」）
+
+### LLM 解說：Level 1 → Level 2 Agentic
+
+| Level | 說明 | 檔案 |
+|-------|------|------|
+| 0 | 只把規則結果寫成人話 | — |
+| 1 | 規則算好 facts → 一次 LLM call 生成解說 | `describe_screens.py` |
+| 2 | **Agentic**：LLM 用工具（function calling / ReAct）自己調查 | `tactics_agent.py` |
+
+**`tactics_agent.py`（主播 Agent）**：
+- 角色設定：「專業籃球轉播主播」，先用 `list_screens` 掌握全局（回傳規則算好的完整事實：擋誰、roll/pop、coverage、play_type、handler），對關鍵擋拆用精確工具查證，用調查工具（`get_trajectory` 等）看流程脈絡，最後命名戰術（單擋/雙擋/staggered）並生成解說
+- **關鍵教訓**：一開始給 LLM 原始軌跡工具，它會自己 eyeball 判斷 roll/pop → 判錯（短窗看漏了延遲的滾動）。加了 `classify_roll_pop` 等規則工具、prompt 明講「精確判斷一定呼叫工具，不要自己猜」之後才穩定判對
+- **另一個教訓**：`list_screens` 一開始沒帶 `handler` 欄位，LLM 會自己亂猜持球者是誰（猜錯）→ 事實裡要把所有下游會用到的資訊都給全，不要讓 LLM 補空
+- prompt 需明確禁止幻覺（不要編球員姿勢、投籃結果、心理描述），否則會加「這球會進」「防守者顯得慌張」這種資料裡沒有的戲劇性內容
+
+### 泛化驗證的價值
+
+只測 v117 時看起來很好，測 v118 才逼出「單幀分隊雜訊把真防守者誤判排除」的 bug（多數決判隊修正）。**同一套 pipeline 要在多支影片上驗證才可信**，單一案例會讓人對修法過度自信。
+
+---
+
+## SAM3 感知層升級（進行中）
+
+詳細脈絡見 `docs/superpowers/specs/2026-09-05-sam3-nonplayer-filtering-design.md`。
+
+### 為什麼走 SAM3
+
+從「v130 的 #10 沒顯示」一路查到根因：**SAM2 追蹤池混入非球員（裁判/籃框/球/計時器），一支追 14 個 obj 但真球員只有 10 個**。驗證過所有現有信號（bbox 形狀、球場區域、分隊摇擺度、TeamSiamese embedding 距離）都**分不乾淨**——裁判 vs 球員的差異是語義層面，現有 pipeline 沒有模組為這個語義訓練。SAM3 的 concept prompt（`"basketball player"`）是唯一從語義層只追球員的工具。
+
+### 已驗證（阶段 2 概念驗證，通過）
+
+- **追球員**：concept `"basketball player"` 在 v130（污染最嚴重）只框 10 個真球員，裁判/籃框/球/計時器全排除，人工確認**非常乾淨**。泛化 v128/v129 各只漏 1 裁判（跑動姿態像球員）+ 抓到替補（是球員，可接受）。
+- **追球**：concept `"basketball"` 追球率 **100%**（連在手上被遮擋都追到）。
+- 驗證工具：`nba_data_pipeline/sam3_concept_check.py`（追球員）、`sam3_handler_check.py`（追球→最近球員判持球）。
+
+### 持球偵測根因（附帶重大發現）
+
+**handler_detector 抓不到傳球後的接球者**（v117 射手接球持球~2秒但只標到 3 幀）。查訓練資料 COCO 坐實根因：**ball_handler 標註是「框持球發起者滿全程」，模型學到的是「這球的主角」不是「此刻誰持球」** → 接球射手從沒被標成 handler，認不出。這不是平滑/conf/IOU 問題，是標註定義。
+
+- **解法（方向 B，先試）**：handler_detector 續用（抓主要持球者 94%），**另用 SAM3 追球 → 離球最近球員 = 持球者 → 補傳球/接球換手**。已驗證能抓到 handler_detector 完全抓不到的換手鏈（v117 #2→#0→#3）。有雜訊（飛球途中最近球員誤判），用距離門檻 + 連續段平滑處理中。
+- 方向 A（重標 153 支重訓）暫緩，B 沒用才做。
+
+### 已改：smooth_ball_acquisition 連續段邏輯
+
+舊版「整段總幀數 < min_total_frames 就清掉」+ 對稱窗口多數決 → 把傳球抹平（整段只剩 1 個 handler）。改成**連續段邏輯**（`min_run`/`fill_gap`）：只清短且孤立的段（單幀抖動），保留夠長的持球段（真傳球），填補同持球者段內漏幀。單元測試通過。與方向 B 不衝突。
+
+### 環境（GB10 踩坑）
+
+**GB10 是 sm_121（ARM64 Grace Blackwell），舊 CUDA 編不出它的 kernel**。舊 container `pytorch:25.03-py3`（CUDA 12.8）跑 SAM3 報 `nvrtc: invalid gpu-architecture`，手動裝 torch 2.10 也沒用（底層 nvrtc 還是舊的）。**解法：用 `nvcr.io/nvidia/pytorch:25.12-py3`（CUDA 13.1 + torch 2.10）另開 container `sam3_env`**（掛載 basketball_analysis 目錄），跟現有 sam2 container 分開。HF CLI 壞（typer 衝突）改用 `HF_TOKEN` 環境變數。影片讀取用 ffmpeg 抽 jpg 餵 SAM3（container cv2 沒 FFMPEG）。
+
+### 整合方向（阶段 3，設計中）
+
+SAM3 單獨在 sam3_env 跑、dump player_tracks（同 SAM2 格式 `list[dict[pid:{bbox}]]`），下游 inference.py 讀 pkl 跳過自己的 SAM2、續跑 court/分隊/擋拆。刪掉現有為 SAM2 污染寫的一大坨清非球員補救邏輯。
+
+---
+
 ## 下一步
 
 ### 短期
-- 跑改好的 inference（SAM2 + handler_detector + sports.TeamClassifier）在 `screen_13.mp4` / `screen_100.mp4` 驗證
-- 看 handler、team、screener 預測是否都穩定
-- 比較 v1 / v2 ckpt 在實際影片上的效果
+- 收緊主播 agent 的解說品質（壓掉少數空話 filler）
+- 建立小型評估集（15-20 支影片，人工標記對錯）量化整體準確率，取代單一案例判斷
+- 視覺化：把 court_coords + 擋拆事件畫成教練戰術板圖（球員位置 + 軌跡箭頭 + 掩護標記），跟文字解說搭配輸出
 
 ### 中期
+- **完整 set play 偵測**（目前只偵測擋拆）：需新增傳球偵測（handler 換人）、無球掩護（掩護者撞「守無球者的防守者」）、切入/空切，才能讓 LLM 命名出完整戰術套路而不只是擋拆片段
+- **連續影片 / 回合切分**：目前每支 clip 已是單一回合，若要處理連續比賽影片，需要：
+  1.（轉播影片）鏡頭切換偵測，只保留主鏡頭段落
+  2. 用「持球方換隊」（平滑 + 過濾短段，同擋拆事件去雜訊邏輯）+ 過半場 + 投籃進球（需新增）當回合邊界訊號
+  3. 每個切出來的回合各自餵進現有 pipeline
 - handler_detector 偵測到的 screener / defender 也接進來當輔助訊號（多模型 fusion）
 - 重新標多 screener 的 clip 補資料
 
 ### 長期
 - Jersey number OCR（Roboflow notebook 有用）→ 認球員身份不只認隊伍
 - 整合 fast break / shot quality 等其他偵測模組
+- ScreenNet 若分析層優化後仍常出錯，考慮重訓成「事件定位」（temporal localization，標籤只在接觸幀附近為正，輸出變尖峰可直接 peak detection）——工作量約 1-2 週且不保證一次收斂，優先度低於分析層修法
 
 ---
 
@@ -181,9 +278,13 @@ basketball_analysis/
 ├── nba_data_pipeline/
 │   ├── convert_manual.py        # COCO → 訓練 npz（v2 多 screener）
 │   ├── finetune.py              # ScreenNet 訓練
-│   ├── inference.py             # 完整 inference（Siamese 分隊, baseline pool）
+│   ├── inference.py             # 完整 inference（Siamese 分隊, baseline pool）→ dump events.pkl
 │   ├── inference_defscore.py    # Siamese + YOLO defender_ratio 補救 pool（取法3）
 │   ├── inference_siglip.py      # 強制走 SigLIP fallback（Siamese 塌時對照用）
+│   ├── tactics_tools.py         # ⭐ 戰術分析規則（讀 pkl，不碰 GPU）：de-flicker/ID-merge/
+│   │                             #   擋拆偵測/roll-pop/coverage/多screener分組
+│   ├── describe_screens.py      # Level 1：規則 facts → 一次 LLM call 生成解說
+│   ├── tactics_agent.py         # Level 2：主播 Agent（function calling + ReAct）
 │   ├── model.py                 # ScreenNetPairwise 定義
 │   ├── coco_to_yolo.py          # COCO → YOLO 格式轉換
 │   ├── test_ball_acquisition.py # 驗證 handler 偵測（舊 + YOLO 模式）
