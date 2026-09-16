@@ -60,6 +60,101 @@ def get_team(player_assignment, pid, frame, max_search=12):
     return None
 
 
+# ── 0b. 合併 SAM2 ID swap（同一實體球員被切成兩個 id）────────────────────────
+
+def _median(vals):
+    s = sorted(vals)
+    m = len(s)
+    return s[m // 2] if m % 2 else (s[m // 2 - 1] + s[m // 2]) / 2
+
+
+def _is_same_player(court_coords, a, b,
+                    max_copresent_ratio=0.1, pos_tol=8.0, gap_tol=3):
+    """
+    判斷 id a、b 是否為同一實體球員被 SAM2 切成兩個 id：
+      1. 幾乎不共存（同時出現的幀數 / 較少者總幀數 <= max_copresent_ratio）
+      2. 交替處位置連續（a 出現幀 對到最近的 b 出現幀，位置中位差 <= pos_tol ft）
+    """
+    n = len(court_coords)
+    frames_a = [f for f in range(n) if a in court_coords[f]]
+    frames_b = [f for f in range(n) if b in court_coords[f]]
+    if len(frames_a) < 3 or len(frames_b) < 3:
+        return False
+
+    fb_set = set(frames_b)
+    co = sum(1 for f in frames_a if f in fb_set)
+    if co > max_copresent_ratio * min(len(frames_a), len(frames_b)):
+        return False   # 常常共存 → 不同人
+
+    # 位置連續性：a 每個出現幀，找 <= gap_tol 內最近的 b 出現幀比位置
+    gaps = []
+    for f in frames_a:
+        for d in range(gap_tol + 1):
+            hit = None
+            for g in (f - d, f + d):
+                if g in fb_set:
+                    hit = g
+                    break
+            if hit is not None:
+                gaps.append(_dist(court_coords[f][a], court_coords[hit][b]))
+                break
+    if len(gaps) < 3:
+        return False
+    return _median(gaps) <= pos_tol
+
+
+def merge_swapped_ids(court_coords, player_assignment, events):
+    """
+    偵測並合併 SAM2 ID swap（如 #9/#10 其實是同一人）。
+    把被交換的 id 統一改成同一個（取較小的 id 當代表），順帶改 player_assignment
+    與 events 的 handler_id/screener_id。
+
+    回 (court_coords, player_assignment, events, merge_pairs)。
+    """
+    all_ids = set()
+    for fr in court_coords:
+        all_ids.update(fr)
+    all_ids = sorted(all_ids)
+
+    # 建立 remap：old id → 代表 id（union-find 式，代表取最小）
+    remap = {}
+    merge_pairs = []
+    for i, a in enumerate(all_ids):
+        for b in all_ids[i + 1:]:
+            ca, cb = remap.get(a, a), remap.get(b, b)
+            if ca == cb:
+                continue
+            if _is_same_player(court_coords, a, b):
+                lo, hi = sorted((ca, cb))
+                # 把所有指向 hi 的都改指向 lo
+                for k, v in list(remap.items()):
+                    if v == hi:
+                        remap[k] = lo
+                remap[hi] = lo
+                merge_pairs.append((hi, lo))
+
+    if not remap:
+        return court_coords, player_assignment, events, []
+
+    def _remap_frame(frame):
+        out = {}
+        for pid, val in frame.items():
+            np = remap.get(pid, pid)
+            if np not in out:           # 罕見共存幀：保留先出現的
+                out[np] = val
+        return out
+
+    cc = [_remap_frame(fr) for fr in court_coords]
+    pa = [_remap_frame(fr) for fr in player_assignment]
+    evs = []
+    for ev in events:
+        ev = dict(ev)
+        ev['handler_id'] = remap.get(ev['handler_id'], ev['handler_id'])
+        ev['screener_id'] = remap.get(ev['screener_id'], ev['screener_id'])
+        evs.append(ev)
+    return cc, pa, evs, merge_pairs
+
+
 # ── 0. 修正 homography 左右鏡像閃爍 ───────────────────────────────────────────
 
 def deflicker_court_coords(court_coords, court_w=COURT_W_FT):
@@ -291,7 +386,8 @@ def nearest_defender(court_coords, player_assignment, offense_pid, frame, handle
 # ── 6. 防守 coverage 分類（啟發式，標明信心）──────────────────────────────────
 
 def classify_coverage(court_coords, player_assignment, handler_id, screener_id,
-                      screen_frame, end, basket, handler_team=1):
+                      screen_frame, end, basket, handler_team=1,
+                      start=0, fps=30.0):
     """
     判斷防守方對擋拆的應對方式（heuristic，非 100% 準）：
       - switch（換防）：screener 的防守者擋完換去守 handler
@@ -301,15 +397,17 @@ def classify_coverage(court_coords, player_assignment, handler_id, screener_id,
 
     回 dict：{coverage, confidence, detail}
     """
-    # 擋拆當下：handler 的防守者 / screener 的防守者
+    # 認防守者用「擋拆前 ~0.5 秒」而非擋拆瞬間——擋拆瞬間 handler/screener 貼在一起，
+    # 兩人的最近防守者常算成同一人。擋拆前兩人還分開，各自的防守者分得清楚。
+    pre_frame = max(start, screen_frame - int(0.5 * fps))
     h_def, _ = nearest_defender(court_coords, player_assignment, handler_id,
-                                screen_frame, handler_team)
+                                pre_frame, handler_team)
     s_def, _ = nearest_defender(court_coords, player_assignment, screener_id,
-                                screen_frame, handler_team)
+                                pre_frame, handler_team)
 
     if h_def is None or s_def is None:
         return {"coverage": "unclear", "confidence": "low",
-                "detail": "擋拆當下抓不到雙方防守者"}
+                "detail": "擋拆前抓不到雙方防守者"}
 
     if h_def == s_def:
         return {"coverage": "unclear", "confidence": "low",
@@ -427,7 +525,8 @@ def analyze_event(event, data):
     region = classify_region(screen_pos, basket)
     action, delta = classify_roll_pop(cc, screener_id, screen_f, basket, fps)
     coverage = classify_coverage(cc, pa, handler_id, screener_id,
-                                 screen_f, end, basket, handler_team)
+                                 screen_f, end, basket, handler_team,
+                                 start=start, fps=fps)
 
     return {
         "frames": (start, end),
@@ -444,16 +543,299 @@ def analyze_event(event, data):
     }
 
 
+# ── 多 screener：分組 + 分析（double / staggered screen）──────────────────────
+
+def screened_defender(court_coords, player_assignment, screener_id, handler_id,
+                      s_start, s_end, handler_team=1, exclude_ids=None):
+    """
+    這個 screener 擋的是哪個防守者：整段跨度內「最靠近接觸」的防守者（方法2）。
+    擋拆 = 近距離接觸，最靠近 screener 的防守者就是被擋的。
+    回 (defender_id, min_contact_dist)；接觸距離也當信心/noise 訊號（太大=假 screener）。
+
+    exclude_ids: 已知進攻方 id（handler + 其他 screener）→ 一律排除，避免 team
+                 assignment 把進攻球員誤標成防守而被當成被擋防守者。
+    """
+    exclude = set(exclude_ids or ())
+    exclude.update((screener_id, handler_id))
+    min_by_def = {}
+    for f in range(s_start, s_end + 1):
+        sp = get_pos(court_coords, screener_id, f, max_search=0)
+        if sp is None:
+            continue
+        for pid, pos in court_coords[f].items():
+            if pid in exclude:
+                continue
+            if get_team(player_assignment, pid, f) == handler_team:
+                continue   # 只看防守方
+            d = _dist(sp, pos)
+            if d < min_by_def.get(pid, float('inf')):
+                min_by_def[pid] = d
+    if not min_by_def:
+        return None, None
+    best = min(min_by_def, key=min_by_def.get)
+    return best, min_by_def[best]
+
+
+def group_multiscreener_events(events, merge_gap=15, min_screener_frames=5):
+    """
+    把單 screener 事件按 handler + 時間分組（不管 screener），收集這波所有 screener。
+    → 天然支援 double/staggered screen，也讓 screener 跳動的碎裂消失。
+
+    回 [{start, end, handler_id, screeners:[{screener_id, start, end, score, frames}]}]
+    events 需已按 start 排序。
+    """
+    if not events:
+        return []
+
+    # 1. 按 handler + 時間相鄰聚叢
+    clusters = []
+    cur = None
+    for ev in events:
+        if (cur is None or ev['handler_id'] != cur['handler_id']
+                or ev['start'] - cur['end'] - 1 > merge_gap):
+            if cur:
+                clusters.append(cur)
+            cur = {'start': ev['start'], 'end': ev['end'],
+                   'handler_id': ev['handler_id'], 'raw': [ev]}
+        else:
+            cur['end'] = max(cur['end'], ev['end'])
+            cur['raw'].append(ev)
+    if cur:
+        clusters.append(cur)
+
+    # 2. 叢內收集每個 screener 的跨度 + 總幀數
+    out = []
+    for cl in clusters:
+        by_s = {}
+        for ev in cl['raw']:
+            s = ev['screener_id']
+            dur = ev['end'] - ev['start'] + 1
+            if s not in by_s:
+                by_s[s] = {'screener_id': s, 'start': ev['start'], 'end': ev['end'],
+                           'score': ev['score'], 'frames': dur}
+            else:
+                by_s[s]['start'] = min(by_s[s]['start'], ev['start'])
+                by_s[s]['end'] = max(by_s[s]['end'], ev['end'])
+                by_s[s]['score'] = max(by_s[s]['score'], ev['score'])
+                by_s[s]['frames'] += dur
+        # 3. 濾掉總幀數太少的 screener（noise）
+        screeners = [v for v in by_s.values() if v['frames'] >= min_screener_frames]
+        if not screeners:
+            continue
+        screeners.sort(key=lambda s: s['start'])
+        out.append({'start': cl['start'], 'end': cl['end'],
+                    'handler_id': cl['handler_id'], 'screeners': screeners})
+    return out
+
+
+def _classify_play_type(screeners, overlap_ratio=0.3):
+    """依 screener 跨度重疊判 double（同時）vs staggered（先後）vs single。"""
+    if len(screeners) <= 1:
+        return "single"
+    # 取跨度最大的兩個比重疊
+    a, b = screeners[0], screeners[1]
+    overlap = min(a['end'], b['end']) - max(a['start'], b['start'])
+    span = max(a['end'], b['end']) - min(a['start'], b['start'])
+    if span <= 0:
+        return "double_screen"
+    return "double_screen" if overlap > overlap_ratio * span else "staggered_screen"
+
+
+def analyze_multiscreener_event(event, data):
+    """對一個多 screener 事件，每個 screener 各自算 facts。"""
+    cc = data['court_coords']
+    pa = data['player_assignment']
+    fps = data.get('fps', 30.0)
+    handler_id = event['handler_id']
+    start, end = event['start'], event['end']
+    handler_team = get_team(pa, handler_id, start) or 1
+    basket = infer_target_basket(cc, start, end)
+
+    # 這事件裡所有進攻方 id（handler + 全部 screener）→ 找被擋防守者時排除
+    offense_ids = {handler_id} | {sc['screener_id'] for sc in event['screeners']}
+
+    facts = []
+    for sc in event['screeners']:
+        sid, ss, se = sc['screener_id'], sc['start'], sc['end']
+        sf = find_screen_frame(cc, handler_id, sid, ss, se,
+                               player_assignment=pa, handler_team=handler_team,
+                               basket=basket)
+        region = classify_region(get_pos(cc, sid, sf), basket)
+        action, delta = classify_roll_pop(cc, sid, sf, basket, fps)
+        cov = classify_coverage(cc, pa, handler_id, sid, sf, se, basket,
+                                handler_team, start=ss, fps=fps)
+        sdef, sdist = screened_defender(cc, pa, sid, handler_id, ss, se,
+                                        handler_team, exclude_ids=offense_ids)
+        facts.append({
+            "screener_id": sid,
+            "screened_defender": sdef,
+            "contact_dist": round(sdist, 1) if sdist is not None else None,
+            "screen_frame": sf,
+            "region": region,
+            "action": action,
+            "action_delta_ft": round(delta, 1),
+            "coverage": cov['coverage'],
+            "coverage_confidence": cov['confidence'],
+            "coverage_detail": cov['detail'],
+        })
+
+    return {
+        "frames": (start, end),
+        "handler_id": handler_id,
+        "n_screeners": len(facts),
+        "play_type": _classify_play_type(event['screeners']),
+        "screeners": facts,
+    }
+
+
+# ── 接觸式擋拆偵測（screener × 被擋防守者 × 時間）─────────────────────────────
+
+def find_screen_instances(court_coords, player_assignment, events,
+                          contact_thr=3.5, gap_merge=20, handler_team=1,
+                          near_handler_thr=20.0):
+    """
+    找所有擋拆實例：(screener, 被擋防守者, 接觸幀, 接觸距離, handler)。
+
+    四個訊號組合：
+      1. ScreenNet 擋拆窗：只在 ScreenNet 認定 screener 擋拆的時間內找（濾開場假接觸）
+      2. 幾何最緊接觸：screener 撞上防守者的瞬間 = 擋拆時間點
+      3. 用防守者區分 + 保留多次：同一 (screener,defender) 若時間分開接觸多次，
+         各算一次擋（gap_merge 內視為同一次，取最緊）→ 支援同一人擋多次
+      4. near-handler：擋拆接觸時 screener 要離 handler < near_handler_thr。
+         擋是「為持球者」設的，一定在球附近 → 濾掉 pop 投籃、遠處路過等假擋。
+
+    回 list[dict]，按 frame 排序。
+    """
+    # 每個 screener 的 ScreenNet 窗 + handler
+    windows, handler_of = {}, {}
+    for e in events:
+        s = e['screener_id']
+        windows.setdefault(s, set()).update(range(e['start'], e['end'] + 1))
+        handler_of[s] = e['handler_id']   # 同 screener 的 handler 一致
+    offense = set(windows) | set(handler_of.values())
+
+    # 每個球員整段的多數隊伍（robust to 單幀分隊雜訊）。
+    # 之前每幀查隊伍：擋拆那幀防守者剛好被誤分成進攻，就被排掉 → 抓錯擋誰。
+    import collections as _c
+    _votes = {}
+    for fr in player_assignment:
+        for pid, t in fr.items():
+            _votes.setdefault(pid, _c.Counter())[t] += 1
+    maj_team = {pid: cnt.most_common(1)[0][0] for pid, cnt in _votes.items()}
+
+    instances = []
+    for S in windows:
+        H = handler_of[S]
+
+        def add_instance(bf, bd, D):
+            hp = get_pos(court_coords, H, bf, max_search=3)
+            sp = get_pos(court_coords, S, bf, max_search=3)
+            s2h = round(_dist(sp, hp), 1) if (hp and sp) else None
+            instances.append({'frame': bf, 'screener_id': S, 'defender_id': D,
+                              'contact_dist': bd, 'handler_id': H,
+                              'screener_to_handler': s2h})
+
+        # 收集窗內 screener 對每個防守者的 (frame, dist)
+        # near-handler filter 放這裡：只看 screener 離 handler 近的幀，
+        # 「最緊接觸」才會落在真正的擋拆時機（而非遠處的偶然貼近）
+        by_def = {}
+        for f in sorted(windows[S]):
+            sp = court_coords[f].get(S) if 0 <= f < len(court_coords) else None
+            if sp is None:
+                continue
+            hp = get_pos(court_coords, H, f, max_search=3)
+            if hp is None or _dist(sp, hp) > near_handler_thr:
+                continue   # 這幀 screener 離持球者太遠 → 不是擋拆時機
+            for D, dp in court_coords[f].items():
+                if D in offense or maj_team.get(D) == handler_team:
+                    continue   # 用多數決隊伍，不看單幀（避免雜訊誤排除防守者）
+                by_def.setdefault(D, []).append((f, _dist(sp, dp)))
+        # 每個防守者：取 <thr 的接觸，按時間 gap 分段，每段取最緊 = 一次擋
+        for D, seq in by_def.items():
+            below = sorted((f, d) for f, d in seq if d < contact_thr)
+            if not below:
+                continue
+            run = [below[0]]
+            for f, d in below[1:]:
+                if f - run[-1][0] > gap_merge:
+                    bf, bd = min(run, key=lambda x: x[1])
+                    add_instance(bf, bd, D)
+                    run = [(f, d)]
+                else:
+                    run.append((f, d))
+            bf, bd = min(run, key=lambda x: x[1])
+            add_instance(bf, bd, D)
+
+    instances.sort(key=lambda x: x['frame'])
+    return instances
+
+
+def group_screen_events(instances, time_gap=25):
+    """把時間相近的擋拆實例湊成事件（同時 2+ 個 = double/staggered）。回 list[list[instance]]。
+
+    同事件內若同一 (screener, 被擋防守者) 出現多次（一次擋被切成多筆），
+    去重只留接觸最緊的一筆。
+    """
+    if not instances:
+        return []
+    events, cur = [], [instances[0]]
+    for it in instances[1:]:
+        if it['frame'] - cur[-1]['frame'] <= time_gap:
+            cur.append(it)
+        else:
+            events.append(cur)
+            cur = [it]
+    events.append(cur)
+
+    # 事件內去重：同一 screener 只留接觸最緊的一筆
+    # （一個掩護者在一次擋拆事件裡只擋一個人；多筆是同一次被切碎或抓到雜訊防守者）
+    deduped = []
+    for g in events:
+        best = {}
+        for it in g:
+            key = it['screener_id']
+            if key not in best or it['contact_dist'] < best[key]['contact_dist']:
+                best[key] = it
+        deduped.append(sorted(best.values(), key=lambda x: x['frame']))
+    return deduped
+
+
+def analyze_screen_instance(inst, data, handler_team, basket):
+    """對一個擋拆實例算 region / roll-pop / coverage。"""
+    cc = data['court_coords']
+    pa = data['player_assignment']
+    fps = data.get('fps', 30.0)
+    sid, sf, H = inst['screener_id'], inst['frame'], inst['handler_id']
+    # coverage 需要一個「擋拆後」的觀察區間
+    cov_end = min(sf + int(1.5 * fps), len(cc) - 1)
+    region = classify_region(get_pos(cc, sid, sf), basket)
+    action, delta = classify_roll_pop(cc, sid, sf, basket, fps)
+    cov = classify_coverage(cc, pa, H, sid, sf, cov_end, basket, handler_team,
+                            start=sf, fps=fps)
+    return {
+        "screener_id": sid,
+        "screened_defender": inst['defender_id'],
+        "contact_dist": round(inst['contact_dist'], 1),
+        "screen_frame": sf,
+        "region": region,
+        "action": action,
+        "action_delta_ft": round(delta, 1),
+        "coverage": cov['coverage'],
+        "coverage_confidence": cov['confidence'],
+        "coverage_detail": cov['detail'],
+    }
+
+
 # ── 獨立測試：讀 dump pkl，印每個事件的 facts ─────────────────────────────────
 
 def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument('pkl', help='inference dump 的 events.pkl')
-    ap.add_argument('--merge_gap', type=int, default=15,
-                    help='同 screener、間隔 <= 此幀數的事件合併（補斷訊）')
-    ap.add_argument('--min_frames', type=int, default=5,
-                    help='短於此幀數的事件濾掉')
+    ap.add_argument('--contact_thr', type=float, default=3.5,
+                    help='接觸距離門檻（ft）：screener 撞到防守者 < 此距離才算真擋')
+    ap.add_argument('--time_gap', type=int, default=25,
+                    help='時間相近的擋拆湊成同一事件（雙擋）的幀數門檻')
     ap.add_argument('--no_deflicker', action='store_true',
                     help='關閉 homography 鏡像修正（debug 用）')
     args = ap.parse_args()
@@ -461,35 +843,43 @@ def main():
     with open(args.pkl, 'rb') as f:
         data = pickle.load(f)
 
-    # 先修正 homography 左右鏡像閃爍（否則座標每隔幾幀翻一次，戰術判斷全錯）
-    if not args.no_deflicker:
-        data['court_coords'], nflip = deflicker_court_coords(data['court_coords'])
-        print(f"de-flicker: 修正 {nflip}/{len(data['court_coords'])} 幀鏡像\n")
-
-    raw = data['events']
     fps = data.get('fps', 30.0)   # 舊 pkl 沒存 fps 就 fallback 30
-    events = postprocess_events(raw, args.merge_gap, args.min_frames)
-    print(f"讀入 {len(raw)} 個原始事件 → 後處理後 {len(events)} 個  "
-          f"(fps={fps:.1f}, merge_gap={args.merge_gap}, min_frames={args.min_frames})\n")
     action_zh = {"roll": "順下(roll)", "pop": "外拉(pop)", "unclear": "不明顯"}
 
     def _fmt(fr):
         return f"f{fr}({fr / fps:.1f}s)"
 
-    for i, ev in enumerate(events, 1):
-        facts = analyze_event(ev, data)
-        s, e = facts['frames']
-        sf = facts['screen_frame']
-        dur = (e - s) / fps
-        print(f"── 事件 #{i}  score={facts['score']:.2f} ──")
-        print(f"  開始：{_fmt(s)}   結束：{_fmt(e)}   持續：{dur:.1f}s")
-        print(f"  持球 #{facts['handler_id']} / 掩護 #{facts['screener_id']}")
-        print(f"  擋拆接觸幀：{_fmt(sf)}")
-        print(f"  擋拆位置：{facts['region']}")
-        print(f"  掩護後動作：{action_zh.get(facts['action'])} "
-              f"(離籃框變化 {facts['action_delta_ft']:+.1f}ft)")
-        print(f"  防守應對：{facts['coverage']} "
-              f"[{facts['coverage_confidence']}] — {facts['coverage_detail']}")
+    # 1. 修正 homography 鏡像
+    if not args.no_deflicker:
+        data['court_coords'], nflip = deflicker_court_coords(data['court_coords'])
+    else:
+        nflip = 0
+    # 2. 合併 SAM2 ID swap（#9/#10 這種同一人兩 id）
+    data['court_coords'], data['player_assignment'], data['events'], pairs = \
+        merge_swapped_ids(data['court_coords'], data['player_assignment'], data['events'])
+    # 3. 接觸式偵測：找所有擋拆實例 → 按時間湊成事件
+    instances = find_screen_instances(data['court_coords'], data['player_assignment'],
+                                      data['events'], contact_thr=args.contact_thr)
+    groups = group_screen_events(instances, time_gap=args.time_gap)
+
+    print(f"原始 {len(data['events'])} 事件 → {len(instances)} 次擋 → {len(groups)} 個擋拆事件  "
+          f"(de-flicker {nflip}幀, ID-merge {pairs}, thr={args.contact_thr}ft, fps={fps:.1f})\n")
+
+    for i, g in enumerate(groups, 1):
+        f0 = min(it['frame'] for it in g)
+        f1 = max(it['frame'] for it in g)
+        H = g[0]['handler_id']
+        handler_team = get_team(data['player_assignment'], H, f0) or 1
+        basket = infer_target_basket(data['court_coords'], max(0, f0 - 15), f1 + 15)
+        kind = "雙擋" if len(g) >= 2 else "單擋"
+        print(f"── 事件 #{i}  [{_fmt(f0)}~{_fmt(f1)}]  持球 #{H}  【{kind}, {len(g)}次擋】──")
+        for j, it in enumerate(g, 1):
+            fa = analyze_screen_instance(it, data, handler_team, basket)
+            print(f"  擋{j}: #{fa['screener_id']} 擋防守者#{fa['screened_defender']}"
+                  f"(接觸{fa['contact_dist']}ft)  @{_fmt(fa['screen_frame'])}")
+            print(f"        {fa['region']} | {action_zh.get(fa['action'])}"
+                  f"({fa['action_delta_ft']:+.1f}ft) | 防守={fa['coverage']}"
+                  f"[{fa['coverage_confidence']}]")
         print()
 
 
