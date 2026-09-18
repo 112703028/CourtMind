@@ -147,16 +147,28 @@ for r in predictor.handle_stream_request(dict(type="propagate_in_video", session
 - **影片讀取**：container cv2 沒 FFMPEG（同 CLAUDE.md 坑10），腳本改用 ffmpeg
   抽 jpg 資料夾餵 SAM3（SAM3 支援 jpg 資料夾或 mp4）。
 
-### 阶段 3：重寫追蹤層整合 SAM3（阶段 2 過關才做）
+### 阶段 3：追蹤層整合 SAM3 ✅ 核心完成（2026-09-18）
 
-把現有 `run_sam2_tracks`（YOLO init → box prompt → propagate → Pass2 scan → Pass3）
-重寫成 SAM3 concept-based 流程。這是大工程，僅在阶段 2 驗證 SAM3 有效後才投入。
+實作 plan：`docs/superpowers/plans/2026-09-18-sam3-tracking-integration.md`（範圍A：只換追蹤）。
+**兩階段解耦**（沒有「重寫」現有 SAM2 邏輯，而是加平行路徑）：
 
-**影響範圍**（重寫時評估）：
-- `inference.py` 的 `run_sam2_tracks` / `verify_sam2_with_yolo` / `_pick_init_frame`
-  / `_filter_player_like_bboxes` 可能整組被 concept prompt 取代
-- 下游 `court_coords` / `player_assignment` / handler 配對介面盡量保持不變，
-  讓 `tactics_tools.py` 分析層不用改
+1. **`run_sam3_tracks.py`**（sam3_env）：SAM3 concept `"basketball player"` → 產
+   `player_tracks`（格式同 SAM2 `list[dict[pid:{'bbox'}]]`）dump 成 pkl。
+2. **inference.py 加 `--sam3_tracks`**（basketball_analysis）：給定則讀 pkl 當
+   player_tracks、跳過 SAM2 + verify + predictor/player_model 載入；下游不變。
+
+**驗證結果（v130，2026-09-18）**：
+- SAM3 tracked 360/360 frames，**追到剛好 10 個純球員 [0-9]**（SAM2 版追 14 個含
+  裁判 #6/#11/#13/#15 + 籃框）→ **非球員污染徹底解決** ✅
+- 下游整套（court/分隊/handler 77.5%/擋拆 16 events）**無痛吃下 SAM3 tracks，不用改**。
+- 兩 container 透過掛載的 /workspace 共用 pkl。
+
+**後續工作（獨立 plan）**：
+- 刪 SAM2 污染的清非球員補救邏輯（inference.py ~1001-1056）— 本 plan 只加平行路徑
+  不動它，確認 SAM3 穩定後再開 plan 刪。
+- verify 去留：SAM3 追蹤乾淨，暫不需要 verify_sam2_with_yolo（跑更多支確認）。
+- 範圍B：SAM3 追球 + v1 持球判定取代 handler_detector。
+- off-ball 掩護偵測（依賴乾淨追蹤，**現在解鎖了**）。
 
 ## 附帶發現：持球偵測抓不到傳球/接球（根因＝訓練資料標註偏差）
 
