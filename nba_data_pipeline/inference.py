@@ -1054,59 +1054,8 @@ def main():
     print("YOLO per-player class voting...")
     class_votes = detect_player_class_votes(frames, player_tracks, handler_model)
 
-    # 1. 真球員：整段「至少有 1 票」被 handler_detector 認為是任一 class
-    min_votes_for_real_player = 1
-    yolo_real_player_pids = {
-        pid for pid, counter in class_votes.items()
-        if sum(counter.values()) >= min_votes_for_real_player
-    }
-
-    # 2. 整段所有 SAM2 追蹤的 pid（含可能是球 / 雜訊的）
-    all_tracked_pids = set()
-    for ft in player_tracks:
-        all_tracked_pids.update(ft.keys())
-
-    # 3. 計算每個 pid 平均 bbox 大小與形狀（用來判斷是不是球）
-    #    球：通常 h/w ≈ 1.0、面積小（< 5000 px²）
-    #    真球員：h/w > 1.5、面積大（> 5000 px²）
-    pid_avg_shape = {}    # pid -> (avg_h, avg_w, avg_aspect, avg_area)
-    pid_frame_count = {}  # pid -> 出現幀數
-    for ft in player_tracks:
-        for pid, info in ft.items():
-            bbox = info.get('bbox')
-            if bbox is None:
-                continue
-            x1, y1, x2, y2 = bbox
-            w, h = x2 - x1, y2 - y1
-            if w <= 0 or h <= 0:
-                continue
-            if pid not in pid_avg_shape:
-                pid_avg_shape[pid] = [0.0, 0.0, 0.0, 0.0]
-                pid_frame_count[pid] = 0
-            pid_avg_shape[pid][0] += h
-            pid_avg_shape[pid][1] += w
-            pid_avg_shape[pid][2] += h / w
-            pid_avg_shape[pid][3] += h * w
-            pid_frame_count[pid] += 1
-    for pid in pid_avg_shape:
-        n = pid_frame_count[pid]
-        if n > 0:
-            pid_avg_shape[pid] = [v / n for v in pid_avg_shape[pid]]
-
-    # 4. 非球員 = (0 YOLO 票) AND (平均 bbox 像球：細小 或 太方)
-    #    真球員即使 0 票（罕見遠景球員）也會保留，避免誤殺
-    suspected_non_players = all_tracked_pids - yolo_real_player_pids
-    non_player_pids = set()
-    for pid in suspected_non_players:
-        if pid not in pid_avg_shape:
-            non_player_pids.add(pid)   # 沒任何 bbox → 應該清
-            continue
-        avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
-        is_ball_like = (avg_aspect < 1.5 or avg_area < 5000)
-        if is_ball_like:
-            non_player_pids.add(pid)
-
-    # 4. 找出主要被認為是 defender 的（保留原本的 defender filter）
+    # defender 輔助（兩種追蹤模式都用）：YOLO 主要認成 defender 的 pid，
+    # 下游 baseline pool 從 offense 候選剔除。這跟清污染無關。
     yolo_defender_pids = set()
     for pid, counter in class_votes.items():
         if not counter:
@@ -1114,39 +1063,80 @@ def main():
         top_class, _ = counter.most_common(1)[0]
         if top_class == 2:
             yolo_defender_pids.add(pid)
-
-    print(f"  真球員 (>=1 YOLO 票): {sorted(yolo_real_player_pids)}")
-    print(f"  非球員 (0 票 + 像球: 整段清掉): {sorted(non_player_pids)}")
-    # 印每個被清的 pid 的票數 + 形狀，方便 debug
-    for pid in sorted(non_player_pids):
-        votes = sum(class_votes.get(pid, {}).values())
-        if pid in pid_avg_shape:
-            avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
-            print(f"    pid={pid}: votes={votes}, "
-                  f"avg_h={avg_h:.0f}, avg_w={avg_w:.0f}, "
-                  f"h/w={avg_aspect:.2f}, area={avg_area:.0f}")
-        else:
-            print(f"    pid={pid}: votes={votes}, no bbox")
-
-    # 印「0 票但保留」的 pid，提示這可能是 handler_detector 漏抓的真球員
-    kept_zero_vote = (all_tracked_pids - yolo_real_player_pids) - non_player_pids
-    if kept_zero_vote:
-        print(f"  保留的 0 票 pid (像真球員，免於清掉): {sorted(kept_zero_vote)}")
-        for pid in sorted(kept_zero_vote):
-            avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
-            print(f"    pid={pid}: avg_h={avg_h:.0f}, avg_w={avg_w:.0f}, "
-                  f"h/w={avg_aspect:.2f}, area={avg_area:.0f}")
     print(f"  YOLO 認為的 defender (從 offense 剔除): {sorted(yolo_defender_pids)}")
 
-    # 5. 把非球員的 bbox 整段清成 None → 下游(team_assigner/court_coords/draw)自動跳過
-    n_cleared = 0
-    for ft in player_tracks:
-        for pid in non_player_pids:
-            if pid in ft and ft[pid].get('bbox') is not None:
-                ft[pid]['bbox'] = None
-                ft[pid]['drifted'] = True
-                n_cleared += 1
-    print(f"  清掉 {n_cleared} 個非球員的 player-frame bbox")
+    # ── 清非球員（僅 SAM2 模式需要）──────────────────────────────────────────
+    # SAM2 追蹤池會混入非球員（裁判/籃框/球）→ 用「0 YOLO 票 + bbox 像球」清掉。
+    # SAM3 從源頭只追球員（concept "basketball player"），沒有非球員污染 → 跳過。
+    if not args.sam3_tracks:
+        min_votes_for_real_player = 1
+        yolo_real_player_pids = {
+            pid for pid, counter in class_votes.items()
+            if sum(counter.values()) >= min_votes_for_real_player
+        }
+        all_tracked_pids = set()
+        for ft in player_tracks:
+            all_tracked_pids.update(ft.keys())
+
+        # 每個 pid 平均 bbox 形狀（球：h/w≈1、面積小；球員：h/w>1.5、面積大）
+        pid_avg_shape = {}
+        pid_frame_count = {}
+        for ft in player_tracks:
+            for pid, info in ft.items():
+                bbox = info.get('bbox')
+                if bbox is None:
+                    continue
+                x1, y1, x2, y2 = bbox
+                w, h = x2 - x1, y2 - y1
+                if w <= 0 or h <= 0:
+                    continue
+                if pid not in pid_avg_shape:
+                    pid_avg_shape[pid] = [0.0, 0.0, 0.0, 0.0]
+                    pid_frame_count[pid] = 0
+                pid_avg_shape[pid][0] += h
+                pid_avg_shape[pid][1] += w
+                pid_avg_shape[pid][2] += h / w
+                pid_avg_shape[pid][3] += h * w
+                pid_frame_count[pid] += 1
+        for pid in pid_avg_shape:
+            n = pid_frame_count[pid]
+            if n > 0:
+                pid_avg_shape[pid] = [v / n for v in pid_avg_shape[pid]]
+
+        # 非球員 = (0 YOLO 票) AND (bbox 像球)。真球員即使 0 票也保留，避免誤殺。
+        suspected_non_players = all_tracked_pids - yolo_real_player_pids
+        non_player_pids = set()
+        for pid in suspected_non_players:
+            if pid not in pid_avg_shape:
+                non_player_pids.add(pid)
+                continue
+            avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
+            if avg_aspect < 1.5 or avg_area < 5000:
+                non_player_pids.add(pid)
+
+        print(f"  真球員 (>=1 YOLO 票): {sorted(yolo_real_player_pids)}")
+        print(f"  非球員 (0 票 + 像球: 整段清掉): {sorted(non_player_pids)}")
+        for pid in sorted(non_player_pids):
+            votes = sum(class_votes.get(pid, {}).values())
+            if pid in pid_avg_shape:
+                avg_h, avg_w, avg_aspect, avg_area = pid_avg_shape[pid]
+                print(f"    pid={pid}: votes={votes}, avg_h={avg_h:.0f}, "
+                      f"avg_w={avg_w:.0f}, h/w={avg_aspect:.2f}, area={avg_area:.0f}")
+            else:
+                print(f"    pid={pid}: votes={votes}, no bbox")
+        kept_zero_vote = (all_tracked_pids - yolo_real_player_pids) - non_player_pids
+        if kept_zero_vote:
+            print(f"  保留的 0 票 pid (像真球員，免於清掉): {sorted(kept_zero_vote)}")
+
+        # 把非球員的 bbox 整段清成 None → 下游 team/court/draw 自動跳過
+        n_cleared = 0
+        for ft in player_tracks:
+            for pid in non_player_pids:
+                if pid in ft and ft[pid].get('bbox') is not None:
+                    ft[pid]['bbox'] = None
+                    ft[pid]['drifted'] = True
+                    n_cleared += 1
+        print(f"  清掉 {n_cleared} 個非球員的 player-frame bbox")
 
     # ── Court keypoints ────────────────────────────────────────────────────
     print("Court keypoints...")
