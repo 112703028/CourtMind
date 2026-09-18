@@ -82,10 +82,17 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--max_frames', type=int, default=60)
     ap.add_argument('--single_gpu', action='store_true')
-    ap.add_argument('--dist_ratio', type=float, default=1.0,
-                    help='球離最近球員 > dist_ratio×球員框高 → 算無人持球（球在空中）')
+    ap.add_argument('--cache', default=None,
+                    help='SAM3 結果快取 pkl 路徑（預設 <out>_sam3.pkl）')
+    ap.add_argument('--no_cache', action='store_true',
+                    help='忽略快取，強制重跑 SAM3 推論')
+    ap.add_argument('--overlap_thr', type=float, default=0.5,
+                    help='球框落在球員框內比例 >= overlap_thr → 算觸球（球在他身上）')
+    ap.add_argument('--confirm_frames', type=int, default=3,
+                    help='新持球者要連續幾幀觸球才確立換手（濾掉飛球掠過路人）')
     args = ap.parse_args()
-    dist_ratio = args.dist_ratio
+    overlap_thr = args.overlap_thr
+    confirm_frames = args.confirm_frames
 
     gpus = [torch.cuda.current_device()] if args.single_gpu \
         else list(range(torch.cuda.device_count()))
@@ -102,12 +109,27 @@ def main():
         print("ffmpeg 抽幀失敗"); shutil.rmtree(frame_dir, ignore_errors=True); return
     print(f"抽出 {len(jpgs)} 幀")
 
-    predictor = build_sam3_video_predictor(gpus_to_use=gpus)
-
-    print('concept 1: "basketball player"')
-    players = run_concept(predictor, frame_dir, "basketball player")
-    print('concept 2: "basketball"')
-    balls = run_concept(predictor, frame_dir, "basketball")
+    # ── SAM3 推論結果快取（跟 CLAUDE.md 的 dump-pkl 哲學一致）────────────────────
+    # SAM3 輸出(players/balls)存 pkl。改持球判定邏輯/調參數時直接讀 pkl，不重跑 GPU。
+    import pickle
+    cache_path = args.cache or (os.path.splitext(args.out)[0] + '_sam3.pkl')
+    if os.path.exists(cache_path) and not args.no_cache:
+        print(f"讀 SAM3 快取 → {cache_path}（跳過 GPU 推論；要重推論加 --no_cache）")
+        with open(cache_path, 'rb') as fp:
+            cached = pickle.load(fp)
+        players, balls, jpg_names = cached['players'], cached['balls'], cached['jpgs']
+        # 快取的 jpg 幀重抽（畫框要用），確認幀數一致
+        if len(jpg_names) != len(jpgs):
+            print(f"⚠ 快取幀數({len(jpg_names)}) != 目前抽幀({len(jpgs)})，改用快取幀數")
+    else:
+        predictor = build_sam3_video_predictor(gpus_to_use=gpus)
+        print('concept 1: "basketball player"')
+        players = run_concept(predictor, frame_dir, "basketball player")
+        print('concept 2: "basketball"')
+        balls = run_concept(predictor, frame_dir, "basketball")
+        with open(cache_path, 'wb') as fp:
+            pickle.dump({'players': players, 'balls': balls, 'jpgs': jpgs}, fp)
+        print(f"SAM3 結果存快取 → {cache_path}（下次改判定邏輯不用重推論）")
 
     def _iou(a, b):
         ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
@@ -117,57 +139,93 @@ def main():
         ua = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
         return inter / ua if ua > 0 else 0.0
 
-    # 每幀：找球 → 離球最近的球員 = 持球者
+    def _contain(ball, player):
+        """球框有多少比例落在球員框內（交集 / 球框面積）。球比球員小很多，
+        用「球框被包含比例」比標準 IoU 合適（IoU 會因分母含球員大框而永遠很低）。
+        球在誰手上 → 球框幾乎全落在那球員框內 → 接近 1.0。"""
+        ix1, iy1 = max(ball[0], player[0]), max(ball[1], player[1])
+        ix2, iy2 = min(ball[2], player[2]), min(ball[3], player[3])
+        iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+        inter = iw * ih
+        barea = (ball[2]-ball[0]) * (ball[3]-ball[1])
+        return inter / barea if barea > 0 else 0.0
+
+    # ── Pass 1：每幀算「球框落在誰框內最多 = 觸球者」──────────────────────────
+    # 改用框重疊（你的「接觸」想法的輕量版，論文主流做法）：球框有多少比例落在
+    # 球員框內。球在 #6 手上 → 球框幾乎全在 #6 框內；#9 只是站附近但沒碰球 →
+    # 球框不在 #9 框內 → 不會誤判。直接解「旁邊的人中心更近」的貼近誤判。
     n = len(jpgs)
-    holder_timeline = []           # 套距離門檻後的最終持球者
-    nearest_raw = []               # 門檻前的最近球員（不管多遠）
-    dist_ratio_frame = []          # 每幀 best_d / best_h（看門檻鬆緊）
+    nearest_raw = []      # 每幀重疊最高的球員（-1=無/無球員, None=無球）
+    touched = []          # 該球員重疊是否 >= 門檻（True/False/None）
+    dist_ratio_frame = [] # 這裡改存最高 contain 比例（診斷用）
     ball_found = 0
-    over_thr = 0                   # 因球太遠被判無人持球的幀數
     for f in range(n):
         pl = players.get(f, {})
         bl = balls.get(f, {})
         if not bl:
-            holder_timeline.append(None); nearest_raw.append(None)
+            nearest_raw.append(None); touched.append(None)
             dist_ratio_frame.append(None)
             continue
         ball_found += 1
         bcx, bcy, bball = list(bl.values())[0]
         if not pl:
-            holder_timeline.append(-1); nearest_raw.append(-1)
+            nearest_raw.append(-1); touched.append(False)
             dist_ratio_frame.append(None)
             continue
-        best_pid, best_d, best_h = None, 1e9, 0
+        best_pid, best_ov = None, -1.0
         for pid, (px, py, pbox) in pl.items():
             if _iou(pbox, bball) > 0.5:
                 continue   # 這個「球員」其實就是球，跳過
-            d = ((px - bcx) ** 2 + (py - bcy) ** 2) ** 0.5
-            if d < best_d:
-                best_d, best_pid, best_h = d, pid, (pbox[3] - pbox[1])
+            ov = _contain(bball, pbox)
+            if ov > best_ov:
+                best_ov, best_pid = ov, pid
         nearest_raw.append(best_pid if best_pid is not None else -1)
-        ratio = best_d / best_h if best_h > 0 else 999
-        dist_ratio_frame.append(round(ratio, 2) if best_pid is not None else None)
-        # 距離門檻：球離最近球員太遠 = 球在空中飛行（傳球途中），算「無人持球」
-        if best_pid is not None and ratio <= dist_ratio:
-            holder_timeline.append(best_pid)
-        else:
-            holder_timeline.append(-1)
-            if best_pid is not None:
-                over_thr += 1
+        dist_ratio_frame.append(round(best_ov, 2) if best_pid is not None else None)
+        touched.append(best_pid is not None and best_ov >= overlap_thr)
+
+    # ── Pass 2：持球遲滯（技巧1）────────────────────────────────────────────────
+    # 持球者一旦確立就維持，直到「另一個球員連續 confirm_frames 幀都是最近且觸球」
+    # 才換手。飛球掠過路人（短暫最近）不會換手 → 消除傳球瞬間的短段誤標；真接球者
+    # （持續最近）才被記錄。參考多個 possession 專案的 "no intervening ball contact"。
+    holder_timeline = []
+    holder = -1            # 當前持球者（-1 = 尚無/無人）
+    cand, cand_cnt = None, 0   # 候選新持球者 + 已連續幀數
+    over_thr = 0
+    for f in range(n):
+        nr, tc = nearest_raw[f], touched[f]
+        if nr is None:                    # 無球那幀：維持 holder
+            holder_timeline.append(holder)
+            continue
+        if not tc:                        # 有球員但沒觸球（球在飛）：維持 holder
+            over_thr += 1
+            cand, cand_cnt = None, 0
+            holder_timeline.append(holder)
+            continue
+        # 有觸球
+        if nr == holder:                  # 還是同一人：維持
+            cand, cand_cnt = None, 0
+        else:                             # 別人觸球 → 要連續 confirm_frames 才換
+            if nr == cand:
+                cand_cnt += 1
+            else:
+                cand, cand_cnt = nr, 1
+            if cand_cnt >= confirm_frames:
+                holder = cand             # 確認換手（真接球，非掠過）
+                cand, cand_cnt = None, 0
+        holder_timeline.append(holder)
 
     # ===== 完整診斷 =====
     from collections import Counter
     print(f"\n{'='*60}")
-    print(f"=== 診斷報告（dist_ratio={dist_ratio}）===")
+    print(f"=== 診斷報告（overlap_thr={overlap_thr}, confirm_frames={confirm_frames}）===")
     print(f"{'='*60}")
     print(f"[1] 追球率: {ball_found}/{n} ({ball_found/n*100:.0f}%)")
-    print(f"[2] 因球太遠(>門檻)判無人持球: {over_thr} 幀 "
-          f"（過多表示門檻太嚴，會切碎主持球者）")
+    print(f"[2] 球在飛(沒觸球)幀數: {over_thr}（傳球途中，持球者維持不換）")
 
     dist = Counter(h for h in holder_timeline if h is not None and h != -1)
-    print(f"[3] 持球者分布（門檻後）: {dict(dist.most_common())}")
+    print(f"[3] 持球者分布（遲滯後）: {dict(dist.most_common())}")
     raw_dist = Counter(h for h in nearest_raw if h is not None and h != -1)
-    print(f"[4] 最近球員分布（門檻前，供對照）: {dict(raw_dist.most_common())}")
+    print(f"[4] 最近球員分布（遲滯前 raw，供對照）: {dict(raw_dist.most_common())}")
 
     # 換手點：主鏈上從 A 穩定換成 B（用門檻後、連續段 >= 3）
     def _segs(tl):

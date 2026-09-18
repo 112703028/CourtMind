@@ -190,6 +190,63 @@ handler_detector 只標到 3 幀 → 平滑後被當噪音清掉 → 擋拆分�
 **這也直接關係 handoff 偵測**（2026-09-03 spec）：handoff = 換手，同樣需要能看到
 「球從 A 到 B」。SAM3 追球若可行，handoff 也受益。
 
+## 戰術判斷延伸：持球偵測 + off-ball 掩護（2026-09-18 調查）
+
+目的釐清：最終要用「球員軌跡 + 擋拆訊號 + 持球資訊」判斷命名戰術（西班牙擋拆等），
+持球和 off-ball 掩護都是**戰術判斷的輸入特徵**，不是最終目的。
+
+### 持球偵測（SAM3 追球 → 誰持球）：v1 vs v2
+
+用 SAM3 追球(100%) + 球員位置判持球。試了兩種後處理，5 支對照 GT（v126-130）：
+- **v1（遲滯 overlap + confirm_frames）**：接球者命中率高（5 支 GT 持球者全抓到），
+  但誤標多（貼近誤判、飛球掠過）。
+- **v2（球速度事件：球高速飛=傳球 → 落回誰身上=接球）**：誤標少、乾淨，但會漏
+  接球者（尤其快攻長傳 v129，球飛後接球者立刻運球推進，速度降不下來）。
+- **相對速度**（位移/球框對角線）讓速度門檻在遠近鏡頭通用（spd≈3 球身/幀）。
+- **結論**：對「戰術特徵」用途，**v1 較安全**（接球者不漏，誤標可在戰術層多數決濾）。
+  持球「夠用就好」，不追求逐幀完美。快攻長傳當已知限制。
+- 工具：`sam3_handler_check.py`（跑 SAM3 + 判持球，存 cache pkl）、
+  `sam3_handler_sweep.py`（讀 cache 本機掃參數，不碰 GPU）。**cache 機制讓調參數
+  秒級迭代**（同 CLAUDE.md dump-pkl 哲學）。
+
+### off-ball 掩護偵測（西班牙擋拆的關鍵）
+
+西班牙擋拆 = on-ball 擋拆 + **off-ball 背擋**（第三人擋 on-ball screener 的防守者）。
+偵測西班牙擋拆 = 偵測那個 off-ball 背擋。
+
+**關鍵發現（不用重標！）**：
+1. 訓練資料把 on-ball / off-ball 掩護者**都標成 screener**（混標）→ ScreenNet 學過
+   off-ball，會輸出它。
+2. 但 `find_screen_instances` 的 **near-handler filter（screener 離 handler <20ft）
+   把 off-ball 濾掉了**（背擋遠離持球者）。
+3. 驗證：掃 12 支 events.pkl，**10 支都有「離 handler 遠(>20ft)+ 高信心(>0.8)」的
+   screener**（共 45 筆）= off-ball 掩護被 ScreenNet 抓到、被 filter 濾掉的證據。
+4. GT 對照：v129（on-ball #2 / off-ball #7）、v117（off-ball #9）— #7/#9 都在
+   ScreenNet 輸出裡。
+
+**區分 on-ball / off-ball / double screen 的原則**：用 `screened_defender` 算「擋誰的
+防守者」——擋 handler 的防守者=on-ball；擋別人的=off-ball；兩個都擋 handler 防守者
+=double。距離（離 handler 遠近）是輔助訊號。
+
+**但目前算不準的根源（已查明）**：`screened_defender` 用「整段單幀最緊接觸」，被
+**追蹤漏幀**污染。實例：v117 #9 實際貼身擋 #13（4.6ft），但 #13 在 frames 203-204
+從 court_coords 消失（SAM2 漏幀）→ screened_defender 取到持續存在但較遠的 #7（19ft）
+→ off-ball 分類看錯防守者。**不是 off-ball 本質難分，是追蹤漏幀 + screened_defender
+不 robust。**
+
+**決策：off-ball 偵測等 SAM3 整合完（追蹤乾淨、漏幀少）再做（治本）**。SAM3 追蹤上線
+→ screened_defender 資料完整 → off-ball 自然變準。off-ball 精度綁在追蹤品質上。
+
+### 複雜戰術判斷還缺什麼（論文調查）
+
+LLM 用「規則算好的原子事實 + 戰術知識庫」判斷命名戰術（已定架構）。原子事實盤點：
+- ✅ 已有：on-ball 擋拆、roll/pop、coverage、多screener分組、持球者(v1)
+- ❌ 缺：**off-ball 掩護偵測**（西班牙擋拆必需，等 SAM3）、傳球/handoff 明確事實
+  （v1 有基礎）、spacing/站位（次要，先看 LLM 夠不夠）
+- 時序鏈（先擋→再背擋→pop）**不用規則算，交給 LLM 用知識庫組合**
+- 參考：HoopTransformer（需大資料，不適用）、SGA-INTERACT（3D skeleton+動捕，沒有）
+  → 有限資料下走「規則原子事實 + LLM 組合」是對的。
+
 ## 附帶未解問題（獨立追蹤，不阻塞 SAM3）
 
 1. **v125-130 座標系統性偏移**：擋拆接觸距離被 homography 量成 5-8ft（正常應 <3.5ft），
