@@ -984,6 +984,9 @@ def main():
                         help='Siamese 同隊判斷閾值')
     parser.add_argument('--fps', type=float, default=None,
                         help='影片 fps（換算秒數用）；不給則從影片自動偵測，失敗 fallback 30')
+    parser.add_argument('--sam3_tracks', default=None,
+                        help='SAM3 產的 player_tracks pkl 路徑。給定則讀它當追蹤結果，'
+                             '跳過 SAM2（用 SAM3 乾淨追蹤取代）')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1003,24 +1006,43 @@ def main():
     use_stub = not args.no_stub
     os.makedirs(args.stub_dir, exist_ok=True)
 
-    # ── Player tracking: YOLO 第一幀 + SAM2 跨幀傳播 ─────────────────────────
-    if build_sam2_video_predictor is None:
-        print("ERROR: sam2 not installed. pip install git+https://github.com/facebookresearch/sam2.git")
-        return
+    # ── Player tracking ──────────────────────────────────────────────────────
+    # SAM3 模式：讀預先產好的 player_tracks pkl（run_sam3_tracks.py 在 sam3_env 產），
+    # 跳過 SAM2 + verify。SAM3 從源頭只追球員，非球員污染消失。
+    if args.sam3_tracks:
+        print(f"讀 SAM3 追蹤結果: {args.sam3_tracks}")
+        import pickle as _pkl
+        with open(args.sam3_tracks, 'rb') as _fp:
+            _sam3 = _pkl.load(_fp)
+        player_tracks = _sam3['player_tracks']
+        if len(player_tracks) != len(frames):
+            print(f"  ⚠ SAM3 幀數({len(player_tracks)}) != 影片幀數({len(frames)})，取較短對齊")
+            m = min(len(player_tracks), len(frames))
+            player_tracks = player_tracks[:m]
+            frames = frames[:m]
+        n_tracked = sum(1 for ft in player_tracks if ft)
+        print(f"  SAM3 tracked {n_tracked}/{len(frames)} frames（跳過 SAM2 + verify）")
+        # SAM3 模式不需要 player_model（只有 SAM2 追蹤/verify 用它）；
+        # 下游 handler 偵測用的是 handler_model，另外載入。
+    else:
+        # SAM2 模式：YOLO 第一幀 + SAM2 跨幀傳播
+        if build_sam2_video_predictor is None:
+            print("ERROR: sam2 not installed. pip install git+https://github.com/facebookresearch/sam2.git")
+            return
 
-    print(f"Loading YOLO player model: {args.player_model}")
-    player_model = YOLO(args.player_model)
+        print(f"Loading YOLO player model: {args.player_model}")
+        player_model = YOLO(args.player_model)
 
-    print(f"Loading SAM2 predictor on {device}...")
-    predictor = build_sam2_video_predictor(args.sam2_config, args.sam2_ckpt, device=str(device))
+        print(f"Loading SAM2 predictor on {device}...")
+        predictor = build_sam2_video_predictor(args.sam2_config, args.sam2_ckpt, device=str(device))
 
-    print("Player tracking via SAM2...")
-    player_tracks = run_sam2_tracks(frames, player_model, predictor, device=str(device))
-    n_tracked = sum(1 for ft in player_tracks if ft)
-    print(f"  SAM2 tracked {n_tracked}/{len(frames)} frames")
+        print("Player tracking via SAM2...")
+        player_tracks = run_sam2_tracks(frames, player_model, predictor, device=str(device))
+        n_tracked = sum(1 for ft in player_tracks if ft)
+        print(f"  SAM2 tracked {n_tracked}/{len(frames)} frames")
 
-    # 用 YOLO 每幀重新偵測，清掉 SAM2 mask drift 的 bbox
-    player_tracks = verify_sam2_with_yolo(frames, player_tracks, player_model)
+        # 用 YOLO 每幀重新偵測，清掉 SAM2 mask drift 的 bbox
+        player_tracks = verify_sam2_with_yolo(frames, player_tracks, player_model)
 
     # ── Handler detection: multi-class YOLO 直接抓 ball_handler ──────────────
     print(f"Loading handler detector: {args.handler_model}")
