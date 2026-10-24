@@ -33,9 +33,9 @@ import supervision as sv
 try:
     from sam2.build_sam import build_sam2_video_predictor
 except ImportError:
-    print("ERROR: sam2 not installed.")
-    print("  pip install git+https://github.com/facebookresearch/sam2.git")
-    sys.exit(1)
+    # 不在這裡 exit：convert_contact.py 只 import 這裡的幾何/分隊函式，不需要 SAM2。
+    # 真的要跑本檔 main() 時才檢查。
+    build_sam2_video_predictor = None
 
 FRAMES_DIR        = PROJECT_ROOT / 'input_videos' / 'screen_frames'
 COCO_PATH         = PROJECT_ROOT / 'screen_data' / 'screen_v2.coco' / 'train' / '_annotations.coco.json'
@@ -523,6 +523,11 @@ def main():
         m = re.match(r'screen_(\d+)_(\d{4})', img['file_name'])
         if m:
             coco_clips[int(m.group(1))][int(m.group(2))] = ann_by_img[img['id']]
+
+    if build_sam2_video_predictor is None:
+        print("ERROR: sam2 not installed.")
+        print("  pip install git+https://github.com/facebookresearch/sam2.git")
+        sys.exit(1)
 
     print("Loading models...")
     player_model = YOLO(str(PLAYER_MODEL_PATH))

@@ -17,6 +17,7 @@ tactics_tools.py — 擋拆事件的幾何分析工具（純計算，不碰 LLM�
 
 import math
 import pickle
+import statistics
 
 # ── 場地常數 ──────────────────────────────────────────────────────────────────
 COURT_W_FT = 91.8   # 長軸
@@ -191,6 +192,65 @@ def deflicker_court_coords(court_coords, court_w=COURT_W_FT):
         out.append(dict(frame))
         prev = dict(frame)
     return out, n_flipped
+
+
+def clean_court_tracks(court_coords, court_w=COURT_W_FT, jump=8.0, max_run=3):
+    """
+    球場座標清理（訓練 / 交叉驗證 / 推論共用同一套，5fps 下 jump=8ft ≈ 0.2 秒內不可能的位移）：
+      1. 左右鏡像閃爍 → deflicker_court_coords
+      2. 壞影格：某段（≤ max_run 張）所有人一起跳走、之後又跳回來（homography 暫時算壞）
+         → 那段用前後好影格線性內插；兩邊沒都有的人直接拿掉（build_windows 會沿用最後位置）
+      3. 單人尖刺：某人跳出去、下一張又跳回來（腳點抓錯）→ 內插
+    「跳走之後沒有跳回來」的持續偏移不動（分不出是哪一段才是對的）。
+    回 (清理後的 court_coords, {'flip', 'bad_frames', 'spikes'})。
+    """
+    cc, n_flip = deflicker_court_coords(court_coords, court_w)
+    cc = [dict(f) if f else f for f in cc]
+    n = len(cc)
+
+    def med_disp(a, b):
+        com = [p for p in a if p in b] if a and b else []
+        if len(com) < 2:
+            return None
+        return statistics.median(math.dist(a[p], b[p]) for p in com)
+
+    # 2. 壞影格（整張一起跳）
+    n_bad, f = 0, 1
+    while f < n:
+        m = med_disp(cc[f - 1], cc[f])
+        if m is None or m <= jump:
+            f += 1
+            continue
+        g_ok = None
+        for g in range(f + 1, min(n, f + max_run + 1)):
+            back, ref = med_disp(cc[g - 1], cc[g]), med_disp(cc[f - 1], cc[g])
+            if back is not None and back > jump and ref is not None and ref <= jump:
+                g_ok = g
+                break
+        if g_ok is None:
+            f += 1
+            continue
+        a, b = cc[f - 1], cc[g_ok]
+        span = g_ok - (f - 1)
+        for k in range(f, g_ok):
+            t = (k - (f - 1)) / span
+            cc[k] = {p: (a[p][0] + (b[p][0] - a[p][0]) * t, a[p][1] + (b[p][1] - a[p][1]) * t)
+                     for p in cc[k] if p in a and p in b}
+            n_bad += 1
+        f = g_ok + 1
+
+    # 3. 單人尖刺
+    n_spike = 0
+    for f in range(1, n - 1):
+        a, b, d = cc[f - 1], cc[f], cc[f + 1]
+        if not (a and b and d):
+            continue
+        for p in list(b):
+            if p in a and p in d and math.dist(a[p], b[p]) > jump and math.dist(b[p], d[p]) > jump \
+                    and math.dist(a[p], d[p]) <= jump:
+                b[p] = ((a[p][0] + d[p][0]) / 2, (a[p][1] + d[p][1]) / 2)
+                n_spike += 1
+    return cc, {'flip': n_flip, 'bad_frames': n_bad, 'spikes': n_spike}
 
 
 # ── 1. 推斷進攻籃框 ───────────────────────────────────────────────────────────
@@ -383,6 +443,290 @@ def nearest_defender(court_coords, player_assignment, offense_pid, frame, handle
     return best_pid, best_d
 
 
+# ── 5b. 逐時刻防守配對（HMM / Viterbi）────────────────────────────────────────
+
+def _franks_mu(off_pos, ball_pos, basket, g_off=0.5, g_ball=0.2, g_hoop=0.3):
+    """Franks 加權點：防守者「該站」的位置 = 進攻者 + 球 + 籃框的加權。
+    球不明時用進攻者位置代（等於把球權重併給進攻者）。"""
+    bx = ball_pos[0] if ball_pos else off_pos[0]
+    by = ball_pos[1] if ball_pos else off_pos[1]
+    return (g_off * off_pos[0] + g_ball * bx + g_hoop * basket[0],
+            g_off * off_pos[1] + g_ball * by + g_hoop * basket[1])
+
+
+def defensive_matchup_hmm(court_coords, player_assignment, handler_id, basket,
+                          start=None, end=None, handler_team=None,
+                          sigma=5.0, switch_pen=8.0, min_seg=30,
+                          g_off=0.5, g_ball=0.2, g_hoop=0.3, blend=0.5):
+    """逐時刻防守配對（每個防守者一條 Viterbi）。
+
+    多數決只能給「整段誰守誰」的單一答案，抹平時間 → 抓不到：
+      (1) 換防：擋拆後防守者交換守備對象（狀態隨時間變）
+      (2) 兩人守一：包夾/hedge/trap（兩個防守者同時指向同一進攻者）
+    HMM 對每個防守者獨立解「它逐幀守誰」的序列，兩者都抓得到。
+
+    模型：
+      隱藏狀態 = 這一刻守哪個進攻者
+      發射機率 = 防守者離該進攻者的 Franks 加權點越近越高（高斯，sigma 控寬窄）
+      轉移機率 = 維持同對象機率高、換低但不為零（switch_pen 控換防門檻）
+      Viterbi 解最可能序列，再把短於 min_seg 幀的段併入相鄰長段（去抖動）
+
+    參數（在 v129/v130 兩支不同角度影片同組驗證過）：
+      sigma=5.0    高斯寬度(ft)，窄=要「明顯更近」才算換
+      switch_pen=8.0  換守備對象的 log 懲罰，高=不易亂換（真換防才壓得過）
+      min_seg=30   段落最短幀數(~1秒@30fps)，短段當雜訊併掉
+      blend=0.5    發射距離 = blend·(離進攻者本人) + (1-blend)·(離 μ 加權點)。
+                   純 μ（blend=0）在掩護/貼身時會失真——防守者被擋住貼著被掩護者，
+                   不在理論質心，且球的權重把 μ 拉歪 → 誤判守錯人（v118 f81 實證）。
+                   混入「離本人」校正。0.5 在 v118/v129/v130 標記集驗過。
+
+    回 dict：{defender_id: [(offender_id, f_start, f_end), ...]}（逐段配對）。
+    段落序列允許：同一防守者多段（換防）、不同防守者的段指向同一 offender（兩人守一）。
+    """
+    import collections as _c
+    n = len(court_coords)
+    s = 0 if start is None else max(0, start)
+    e = n - 1 if end is None else min(n - 1, end)
+
+    # 整段多數隊伍分進攻/防守（robust to 單幀分隊雜訊，同 find_screen_instances 慣例）
+    _votes = {}
+    for fr in player_assignment:
+        for pid, t in fr.items():
+            _votes.setdefault(pid, _c.Counter())[t] += 1
+    maj_team = {pid: cnt.most_common(1)[0][0] for pid, cnt in _votes.items()}
+    if handler_team is None:
+        handler_team = maj_team.get(handler_id, 1)
+
+    # 出現太少幀的 id（污染/替補）不納入，門檻 = 觀察窗的 1/3
+    span = max(1, e - s + 1)
+    appear = {pid: sum(1 for f in range(s, e + 1) if pid in court_coords[f])
+              for pid in maj_team}
+    offense = sorted(p for p in maj_team
+                     if maj_team[p] == handler_team and appear[p] >= span // 3)
+    defense = sorted(p for p in maj_team
+                     if maj_team[p] != handler_team and appear[p] >= span // 3)
+    if not offense or not defense:
+        return {}
+
+    def _emit_logp(d_pos, off_pos, ball_pos):
+        # 距離 = blend·離進攻者本人 + (1-blend)·離 μ 加權點。
+        # 純 μ 在掩護貼身時失真（防守者被擋、不在質心），混本人距離校正。
+        d_mu = _dist(d_pos, _franks_mu(off_pos, ball_pos, basket, g_off, g_ball, g_hoop))
+        d_real = _dist(d_pos, off_pos)
+        dd = blend * d_real + (1.0 - blend) * d_mu
+        return -(dd * dd) / (2.0 * sigma * sigma)   # 高斯 log（未正規化，比較用足夠）
+
+    def _viterbi(D):
+        frames = [f for f in range(s, e + 1) if D in court_coords[f]]
+        if not frames:
+            return {}, []
+        S, T = offense, len(frames)
+        dp = [{o: -1e18 for o in S} for _ in range(T)]
+        bp = [{o: None for o in S} for _ in range(T)]
+        f0 = frames[0]
+        ball0 = court_coords[f0].get(handler_id)
+        for o in S:
+            dp[0][o] = (_emit_logp(court_coords[f0][D], court_coords[f0][o], ball0)
+                        if o in court_coords[f0] else -1e18)
+        for i in range(1, T):
+            f = frames[i]
+            ball = court_coords[f].get(handler_id)
+            for o in S:
+                em = (_emit_logp(court_coords[f][D], court_coords[f][o], ball)
+                      if o in court_coords[f] else -1e18)
+                best, barg = -1e30, None
+                for op in S:
+                    sc = dp[i - 1][op] + (0.0 if op == o else -switch_pen)
+                    if sc > best:
+                        best, barg = sc, op
+                dp[i][o] = best + em
+                bp[i][o] = barg
+        last = max(S, key=lambda o: dp[T - 1][o])
+        seq = [last]
+        for i in range(T - 1, 0, -1):
+            last = bp[i][last]
+            seq.append(last)
+        seq.reverse()
+        return dict(zip(frames, seq)), frames
+
+    def _segment(seq, frames):
+        segs = []
+        for f in frames:
+            o = seq[f]
+            if segs and segs[-1][0] == o:
+                segs[-1][2] = f
+            else:
+                segs.append([o, f, f])
+        # 反覆把短段併進較長鄰居（去單幀抖動）
+        changed = True
+        while changed and len(segs) > 1:
+            changed = False
+            for i, (o, a, b) in enumerate(segs):
+                if b - a + 1 < min_seg:
+                    left = segs[i - 1] if i > 0 else None
+                    right = segs[i + 1] if i < len(segs) - 1 else None
+                    cand = [x for x in (left, right) if x]
+                    if not cand:
+                        break
+                    pick = max(cand, key=lambda x: x[2] - x[1])
+                    pick[1] = min(pick[1], a)
+                    pick[2] = max(pick[2], b)
+                    segs.pop(i)
+                    changed = True
+                    break
+        # 併相鄰同對象
+        merged = []
+        for o, a, b in segs:
+            if merged and merged[-1][0] == o:
+                merged[-1][2] = b
+            else:
+                merged.append([o, a, b])
+        return [(o, a, b) for o, a, b in merged]
+
+    out = {}
+    for D in defense:
+        seq, frames = _viterbi(D)
+        if frames:
+            out[D] = _segment(seq, frames)
+    return out
+
+
+def matchup_at_frame(matchup, frame):
+    """從 defensive_matchup_hmm 的輸出取某一幀的配對快照。
+    回 {defender_id: offender_id}（該幀有段落覆蓋的防守者）。"""
+    snap = {}
+    for D, segs in matchup.items():
+        for o, a, b in segs:
+            if a <= frame <= b:
+                snap[D] = o
+                break
+    return snap
+
+
+def double_teams(matchup, frame):
+    """從 matchup 找某一幀「兩人以上守同一進攻者」的情況（包夾/hedge/trap 訊號）。
+    回 {offender_id: [defender_id, ...]}，只列 >=2 人守的。"""
+    import collections as _c
+    snap = matchup_at_frame(matchup, frame)
+    by_off = _c.defaultdict(list)
+    for D, o in snap.items():
+        by_off[o].append(D)
+    return {o: sorted(ds) for o, ds in by_off.items() if len(ds) >= 2}
+
+
+def _matchup_mode(matchup, D, f_start, f_end):
+    """D 在 [f_start,f_end] 窗內守得最多的對象（多數決），None=無段落覆蓋。"""
+    import collections as _c
+    cnt = _c.Counter()
+    for o, a, b in matchup.get(D, []):
+        lo, hi = max(a, f_start), min(b, f_end)
+        if hi >= lo:
+            cnt[o] += hi - lo + 1
+    return cnt.most_common(1)[0][0] if cnt else None
+
+
+def classify_coverage_hmm(court_coords, matchup, handler_id, screener_id,
+                          defender_id, contact_frame, basket, fps=30.0,
+                          pre_win=0.6, post_win=1.2, hedge_dist=5.0,
+                          drop_back_ft=4.0):
+    """用 HMM 配對判一次擋拆的 coverage：switch / hedge / drop / unclear。
+
+    規則負責看得準——讀 HMM 的逐時刻配對 + 擋拆前後的位置變化，不靠單幀最近。
+    角色（擋拆是 screener 擋「守 handler 的防守者」，好讓 handler 甩開他）：
+      Dh = 被擋的防守者（= defender_id，find_screen_instances 給的就是守 handler 被擋的人）
+      Ds = 守 screener 的防守者（擋拆前另外找：matchup 裡守 screener 的人）
+    coverage 看的是 Ds（守 screener 的人）怎麼應對這次擋拆。
+
+    判斷順序（擋拆接觸幀 cf 前後各開一個窗）：
+      hedge（先判）：原守 handler 的 Dh 沒走 + 守 screener 的 Ds 也上前貼近 handler
+                    → 後窗變「兩人夾 handler」。這是 hedge/show 的定義，不是 switch。
+                    用原始距離補判 Ds 是否貼近（HMM 包夾抓不全，Ds 去夾時常仍判它守 screener）。
+      switch：Dh 與 Ds 對調（Ds 改守 handler、Dh 改守 screener），且非兩人守 handler。
+      drop  ：Ds 維持守 screener 沒上前，且往籃框側退（離籃框更近 drop_back_ft 以上）。
+      unclear：都不符。
+    關鍵教訓：switch vs hedge 的差別在「原守 handler 的人有沒有走」——沒走+對方來夾=hedge（兩人守
+    handler）；對調且仍一對一=switch。先判 hedge 才不會把「兩人夾」誤當 switch（v124/v127/v130 實證）。
+
+    回 dict：{coverage, confidence, detail}
+    """
+    n = len(court_coords)
+    cf = contact_frame
+    pre_a, pre_b = max(0, cf - int(pre_win * fps)), cf
+    post_a, post_b = cf, min(n - 1, cf + int(post_win * fps))
+
+    # 不依賴 defender_id 當固定角色（實測它有時是 Dh 有時是 Ds）。
+    # 直接用 HMM 配對找擋拆「前」誰守 handler(Dh)、誰守 screener(Ds)。
+    Dh = Ds = None
+    for D in matchup:
+        pre = _matchup_mode(matchup, D, pre_a, pre_b)
+        if pre == handler_id and Dh is None:
+            Dh = D
+        elif pre == screener_id and Ds is None:
+            Ds = D
+    # Ds 補救：配對沒抓到就用「擋拆前離 screener 最近的防守者」
+    if Ds is None:
+        best = None
+        for D in matchup:
+            if D == Dh:
+                continue
+            dp = get_pos(court_coords, D, pre_b, max_search=5)
+            sp = get_pos(court_coords, screener_id, pre_b, max_search=5)
+            if dp and sp:
+                dd = _dist(dp, sp)
+                if best is None or dd < best[1]:
+                    best = (D, dd)
+        if best:
+            Ds = best[0]
+    if Dh is None or Ds is None:
+        return {"coverage": "unclear", "confidence": "low",
+                "detail": "擋拆前找不到守 handler 或守 screener 的防守者"}
+
+    Dh_post = _matchup_mode(matchup, Dh, post_a, post_b)
+    Ds_post = _matchup_mode(matchup, Ds, post_a, post_b)
+
+    # Ds 擋拆後有沒有一度貼近 handler（原始距離，繞過 HMM 包夾抓不全）
+    min_ds_to_h = float('inf')
+    hedge_frame = None
+    for f in range(post_a, post_b + 1):
+        dp = get_pos(court_coords, Ds, f, max_search=0)
+        hp = get_pos(court_coords, handler_id, f, max_search=0)
+        if dp and hp:
+            dd = _dist(dp, hp)
+            if dd < min_ds_to_h:
+                min_ds_to_h, hedge_frame = dd, f
+    dh_stays = (Dh_post == handler_id)   # 原守 handler 的沒走
+
+    # 1) hedge（先判）：原守 handler 的沒走 + 守 screener 的也上來夾 handler
+    #    → 後窗變成「兩人守 handler」。這是 hedge 的定義（包夾/show）。
+    if dh_stays and min_ds_to_h < hedge_dist:
+        return {"coverage": "hedge", "confidence": "high",
+                "detail": f"#{Dh} 續守 handler#{handler_id}，#{Ds} 於 f{hedge_frame} "
+                          f"上前夾（最近 {min_ds_to_h:.1f}ft）→ 兩人夾 handler"}
+
+    # 2) switch：Dh 與 Ds 對調（Ds 去守 handler、Dh 去守 screener），且非兩人守 handler
+    if Ds_post == handler_id and Dh_post == screener_id:
+        return {"coverage": "switch", "confidence": "high",
+                "detail": f"#{Dh}↔#{Ds} 交換：#{Ds}改守handler#{handler_id}、"
+                          f"#{Dh}改守screener#{screener_id}"}
+
+    # 3) drop：Ds 維持守 screener 且往籃框側退
+    if Ds_post == screener_id or Ds_post is None:
+        ds_pre = get_pos(court_coords, Ds, pre_b, max_search=5)
+        ds_post_pos = get_pos(court_coords, Ds, post_b, max_search=5)
+        if ds_pre and ds_post_pos:
+            d_pre = _dist(ds_pre, basket)
+            d_post = _dist(ds_post_pos, basket)
+            if d_pre - d_post >= drop_back_ft:
+                return {"coverage": "drop", "confidence": "medium",
+                        "detail": f"#{Ds} 不上前，退向籃框（距籃框 "
+                                  f"{d_pre:.0f}→{d_post:.0f}ft）"}
+        return {"coverage": "drop", "confidence": "low",
+                "detail": f"#{Ds} 維持守 screener#{screener_id}，未見上前夾擊"}
+
+    return {"coverage": "unclear", "confidence": "low",
+            "detail": f"#{Dh}守handler→#{Dh_post}、#{Ds}守screener→#{Ds_post}，不符模式"}
+
+
 # ── 6. 防守 coverage 分類（啟發式，標明信心）──────────────────────────────────
 
 def classify_coverage(court_coords, player_assignment, handler_id, screener_id,
@@ -459,6 +803,30 @@ def classify_coverage(court_coords, player_assignment, handler_id, screener_id,
                       f"(min→handler={min_sdef_to_handler:.0f}ft)"}
 
 
+def classify_coverage_ml(court_coords, player_assignment, handler_id, screener_id,
+                         screen_frame, fps=30.0, handler_team=1, fallback_end=None,
+                         basket=None):
+    """
+    防守方式（人工標記訓練的隨機森林，coverage_model.py）：switch / blitz / drop（含延誤）/ unclear。
+    信心不足回 unclear。models/coverage_rf.pkl 不存在時退回規則版 classify_coverage。
+    """
+    try:
+        from coverage_model import predict_coverage
+        r = predict_coverage(court_coords, player_assignment, handler_id, screener_id,
+                             screen_frame, fps, handler_team=handler_team)
+    except ImportError:
+        r = None
+    if r is not None:
+        return r
+    end = fallback_end if fallback_end is not None else min(screen_frame + int(1.5 * fps),
+                                                            len(court_coords) - 1)
+    if basket is None:
+        basket = infer_target_basket(court_coords, max(0, screen_frame - int(2 * fps)), end)
+    return classify_coverage(court_coords, player_assignment, handler_id, screener_id,
+                             screen_frame, end, basket, handler_team,
+                             start=screen_frame, fps=fps)
+
+
 # ── 事件後處理：合併碎片 + 濾雜訊（分析層調校，不動 inference）────────────────
 
 def postprocess_events(events, merge_gap=15, min_frames=5, blip_frames=2):
@@ -524,9 +892,8 @@ def analyze_event(event, data):
     screen_pos = get_pos(cc, screener_id, screen_f)
     region = classify_region(screen_pos, basket)
     action, delta = classify_roll_pop(cc, screener_id, screen_f, basket, fps)
-    coverage = classify_coverage(cc, pa, handler_id, screener_id,
-                                 screen_f, end, basket, handler_team,
-                                 start=start, fps=fps)
+    coverage = classify_coverage_ml(cc, pa, handler_id, screener_id, screen_f, fps,
+                                    handler_team, fallback_end=end, basket=basket)
 
     return {
         "frames": (start, end),
@@ -810,8 +1177,8 @@ def analyze_screen_instance(inst, data, handler_team, basket):
     cov_end = min(sf + int(1.5 * fps), len(cc) - 1)
     region = classify_region(get_pos(cc, sid, sf), basket)
     action, delta = classify_roll_pop(cc, sid, sf, basket, fps)
-    cov = classify_coverage(cc, pa, H, sid, sf, cov_end, basket, handler_team,
-                            start=sf, fps=fps)
+    cov = classify_coverage_ml(cc, pa, H, sid, sf, fps, handler_team,
+                               fallback_end=cov_end, basket=basket)
     return {
         "screener_id": sid,
         "screened_defender": inst['defender_id'],

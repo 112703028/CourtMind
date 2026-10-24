@@ -23,6 +23,23 @@ INPUT_LEN  = 7    # 預訓練輸入幀數
 PRED_LEN   = 3    # 預訓練預測幀數
 
 
+def to_handler_relative(traj):
+    """
+    絕對球場座標 → 以持球者為原點的相對座標（跟預訓練 extract_sequences.py 的 traj -= origin 一致）。
+    traj: (..., 10, T, 2) numpy；slot 0 = 持球者。原點 = 持球者在窗內第一個有座標的位置。
+    缺人補的 (0,0) 維持 0；持球者整窗都沒座標 → 原樣返回。
+    """
+    import numpy as np
+    traj = np.asarray(traj, dtype=np.float32)
+    real = np.abs(traj).sum(-1) > 0                          # (..., 10, T)
+    h_real = real[..., 0, :]                                 # (..., T)
+    first = h_real.argmax(-1)                                # 第一個有座標的時間點
+    h = traj[..., 0, :, :]                                   # (..., T, 2)
+    origin = np.take_along_axis(h, first[..., None, None], axis=-2)[..., 0, :]   # (..., 2)
+    origin = np.where(h_real.any(-1)[..., None], origin, 0.0)
+    return np.where(real[..., None], traj - origin[..., None, None, :], 0.0).astype(np.float32)
+
+
 # ── Base Model ────────────────────────────────────────────────────────────────
 
 class MiniScreenNet(nn.Module):

@@ -129,6 +129,7 @@ def t_list_screens(ctx):
             fa = analyze_screen_instance(it, data_like, ctx['handler_team'], ctx['basket'])
             screens.append({"screener": fa["screener_id"], "defender": fa["screened_defender"],
                             "action": fa["action"], "coverage": fa["coverage"],
+                            "coverage_confidence": fa["coverage_confidence"],
                             "region": fa["region"], "frame": fa["screen_frame"]})
         # 結構標籤：讓 LLM 直接有正確的戰術詞，不用自己編
         frames = [it['frame'] for it in g]
@@ -155,12 +156,10 @@ def t_classify_roll_pop(ctx, screener, screen_frame):
 
 
 def t_classify_coverage(ctx, handler, screener, screen_frame):
-    """規則精確判防守方式（switch/hedge/drop）。"""
-    from tactics_tools import classify_coverage
-    cc, fps = ctx['cc'], ctx['fps']
-    cov_end = min(screen_frame + int(1.5 * fps), len(cc) - 1)
-    cov = classify_coverage(cc, ctx['pa'], handler, screener, screen_frame, cov_end,
-                            ctx['basket'], ctx['handler_team'], start=screen_frame, fps=fps)
+    """模型判防守方式（switch/blitz/drop[含延誤]/unclear）。"""
+    from tactics_tools import classify_coverage_ml
+    cov = classify_coverage_ml(ctx['cc'], ctx['pa'], handler, screener, screen_frame,
+                               ctx['fps'], ctx['handler_team'], basket=ctx['basket'])
     return {"coverage": cov['coverage'], "confidence": cov['confidence'],
             "detail": cov['detail']}
 
@@ -245,7 +244,7 @@ TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "classify_coverage",
-        "description": "用規則精確判斷防守方對擋拆的應對(switch換防/hedge包夾/drop退防)。判 coverage 用這個。",
+        "description": "用模型判斷防守方對擋拆的應對：switch換防 / blitz包夾 / drop退防（含延誤hedge，兩者分不出）/ unclear不確定。判 coverage 用這個。",
         "parameters": {"type": "object", "properties": {
             "handler": {"type": "integer"}, "screener": {"type": "integer"},
             "screen_frame": {"type": "integer"}},
@@ -290,6 +289,12 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
     - 手遞手 DHO 等
   用「這是一次◯◯戰術」開場，說明持球者吃了誰的掩護、目的是什麼，
   再依時間順序解說每個擋的 roll/pop 和防守應對。
+
+防守方式（coverage）的說法：
+  - switch = 換防；blitz = 包夾（兩人夾持球者）；drop = 退防或延誤（資料分不出這兩種，
+    說「掩護者的防守者沒有一路跟出來包夾或換防」即可，不要斷言是哪一種）
+  - unclear = 模型沒把握：就說防守應對不明確，不要自己從座標推測或硬給答案
+  - confidence 是 medium 時用比較保留的語氣（「看起來是…」）
 
 風格：專業、精準、有畫面感。生動但每句都要有事實根據，不要編造球員姿勢、
 出手、得分或心理（你只看到擋拆，看不到出手結果）。

@@ -57,7 +57,7 @@ def read_video(video_path):
     return _read_video_imageio(video_path)
 
 
-def _save_video_cv2(output_video_frames, output_video_path, fps=24):
+def _save_video_cv2(output_video_frames, output_video_path, fps=30):
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     h, w = output_video_frames[0].shape[:2]
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (w, h))
@@ -71,7 +71,7 @@ def _save_video_cv2(output_video_frames, output_video_path, fps=24):
     return True
 
 
-def _save_video_imageio(output_video_frames, output_video_path, fps=24):
+def _save_video_imageio(output_video_frames, output_video_path, fps=30):
     """
     Streaming 寫法 — 一邊讀一邊寫，省記憶體（不要一次 stack 整個 array）。
     對 840 幀 1080p 影片可省下 ~10GB peak memory。
@@ -100,7 +100,9 @@ def _save_video_imageio(output_video_frames, output_video_path, fps=24):
         writer.close()
 
 
-def save_video(output_video_frames, output_video_path, fps=24):
+def save_video(output_video_frames, output_video_path, fps=30):
+    # 預設 30（籃球影片常見）；呼叫端務必傳入來源 fps，別靠預設——
+    # 曾因預設 24 把 30fps/240幀的影片存成 10 秒（實際 8 秒），害 GT 秒數對不上。
     if not output_video_frames:
         print("  [video_utils] 沒有 frame 可儲存")
         return

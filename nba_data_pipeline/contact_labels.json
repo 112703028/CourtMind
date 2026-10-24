@@ -1,0 +1,4611 @@
+{
+ "screen_11": {
+  "fps": 60.0,
+  "n_frames": 503,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 58,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     1487.8125,
+     481.9921875,
+     125.625,
+     284.765625
+    ],
+    "assign_score": 0.176,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_12": {
+  "fps": 60.0,
+  "n_frames": 533,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 120,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     272.8125,
+     491.484375,
+     193.125,
+     265.78125
+    ],
+    "assign_score": 0.713,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_13": {
+  "fps": 60.0,
+  "n_frames": 322,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 0,
+    "contact": true,
+    "idx": 0,
+    "coco_idx": 0,
+    "screener_box": [
+     1055.625,
+     369.66796875,
+     97.5,
+     195.1171875
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   },
+   {
+    "frame": 0,
+    "contact": true,
+    "idx": 0,
+    "coco_idx": 0,
+    "screener_box": [
+     501.5625,
+     404.47265625,
+     103.125,
+     235.1953125
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_14": {
+  "fps": 60.0,
+  "n_frames": 372,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 121,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     496.875,
+     366.50390625,
+     168.75,
+     226.7578125
+    ],
+    "assign_score": 0.918,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_15": {
+  "fps": 60.0,
+  "n_frames": 351,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 60,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     474.375,
+     446.66015625,
+     123.75,
+     226.7578125
+    ],
+    "assign_score": 0.137,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_16": {
+  "fps": 59.94,
+  "n_frames": 439,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 89,
+    "contact": true,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     1599.375,
+     338.02734375,
+     108.75,
+     214.1015625
+    ],
+    "assign_score": 0.384,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_17": {
+  "fps": 60.0,
+  "n_frames": 347,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 78,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     799.6875,
+     494.12109375,
+     148.125,
+     271.0546875
+    ],
+    "assign_score": 0.625,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_18": {
+  "fps": 59.94,
+  "n_frames": 448,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 68,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     242.8125,
+     358.06640625,
+     163.125,
+     205.6640625
+    ],
+    "assign_score": 0.734,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_19": {
+  "fps": 59.94,
+  "n_frames": 433,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 104,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     436.875,
+     463.0078125,
+     90.0,
+     221.484375
+    ],
+    "assign_score": 1.104,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_20": {
+  "fps": 59.94,
+  "n_frames": 467,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 144,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     941.25,
+     447.71484375,
+     90.0,
+     268.9453125
+    ],
+    "assign_score": 1.509,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_21": {
+  "fps": 59.94,
+  "n_frames": 584,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 80,
+    "contact": true,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     1245.0,
+     292.1484375,
+     105.0,
+     204.609375
+    ],
+    "assign_score": 1.103,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_22": {
+  "fps": 59.94,
+  "n_frames": 386,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 124,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_23": {
+  "fps": 59.94,
+  "n_frames": 537,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 96,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     389.0625,
+     371.25,
+     103.125,
+     242.578125
+    ],
+    "assign_score": 0.615,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_24": {
+  "fps": 59.94,
+  "n_frames": 469,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 20,
+    "contact": true,
+    "idx": 2,
+    "coco_idx": 2,
+    "screener_box": [
+     496.875,
+     328.53515625,
+     82.5,
+     205.6640625
+    ],
+    "assign_score": 1.784,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_25": {
+  "fps": 60.0,
+  "n_frames": 407,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 115,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     1463.4375,
+     523.65234375,
+     148.125,
+     222.5390625
+    ],
+    "assign_score": 0.502,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_26": {
+  "fps": 59.79,
+  "n_frames": 310,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 135,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     331.875,
+     247.5,
+     103.75,
+     194.0625
+    ],
+    "assign_score": 0.689,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_27": {
+  "fps": 59.79,
+  "n_frames": 466,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 61,
+    "contact": false,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     345.0,
+     281.953125,
+     85.0,
+     174.375
+    ],
+    "assign_score": 1.148,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_28": {
+  "fps": 59.79,
+  "n_frames": 514,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 114,
+    "contact": false,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     480.0,
+     311.484375,
+     85.0,
+     227.8125
+    ],
+    "assign_score": 0.957,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_29": {
+  "fps": 59.79,
+  "n_frames": 593,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 85,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     817.5,
+     243.28125,
+     80.0,
+     180.0
+    ],
+    "assign_score": 0.548,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_30": {
+  "fps": 59.79,
+  "n_frames": 639,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 98,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     892.5,
+     191.953125,
+     62.5,
+     164.53125
+    ],
+    "assign_score": 0.638,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_31": {
+  "fps": 59.79,
+  "n_frames": 550,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 82,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     827.5,
+     313.2421875,
+     90.0,
+     184.921875
+    ],
+    "assign_score": 0.888,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_32": {
+  "fps": 59.79,
+  "n_frames": 495,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 65,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     272.5,
+     327.3046875,
+     97.5,
+     169.453125
+    ],
+    "assign_score": 0.952,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_33": {
+  "fps": 59.79,
+  "n_frames": 500,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 69,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     440.0,
+     345.5859375,
+     75.0,
+     183.515625
+    ],
+    "assign_score": 0.426,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_34": {
+  "fps": 59.79,
+  "n_frames": 512,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 105,
+    "contact": false,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     786.25,
+     283.0078125,
+     55.0,
+     138.515625
+    ],
+    "assign_score": 0.44,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_35": {
+  "fps": 59.79,
+  "n_frames": 561,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 208,
+    "contact": false,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     875.625,
+     303.046875,
+     68.75,
+     151.875
+    ],
+    "assign_score": 0.856,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_36": {
+  "fps": 59.79,
+  "n_frames": 496,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 141,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     290.0,
+     217.6171875,
+     110.0,
+     184.921875
+    ],
+    "assign_score": 0.502,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_37": {
+  "fps": 59.79,
+  "n_frames": 695,
+  "valid_start": 0,
+  "pending": true,
+  "notes": [
+   "影片幫我從第一偵開始算 前面cut掉"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 176,
+    "contact": true,
+    "idx": 15,
+    "coco_idx": 15,
+    "screener_box": [
+     879.375,
+     323.0859375,
+     111.25,
+     152.578125
+    ],
+    "assign_score": 0.851,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_38": {
+  "fps": 59.79,
+  "n_frames": 588,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 128,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     844.375,
+     291.796875,
+     91.25,
+     213.75
+    ],
+    "assign_score": 0.475,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_39": {
+  "fps": 59.79,
+  "n_frames": 423,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 146,
+    "contact": false,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     786.25,
+     300.5859375,
+     72.5,
+     132.890625
+    ],
+    "assign_score": 1.126,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_40": {
+  "fps": 59.79,
+  "n_frames": 471,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 66,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     353.125,
+     277.3828125,
+     111.25,
+     149.765625
+    ],
+    "assign_score": 0.717,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_41": {
+  "fps": 59.79,
+  "n_frames": 532,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 129,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     227.5,
+     299.1796875,
+     52.5,
+     169.453125
+    ],
+    "assign_score": 0.325,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_42": {
+  "fps": 59.79,
+  "n_frames": 537,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 96,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     206.875,
+     254.53125,
+     71.25,
+     136.40625
+    ],
+    "assign_score": 0.833,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_43": {
+  "fps": 59.79,
+  "n_frames": 550,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 264,
+    "contact": false,
+    "idx": 22,
+    "coco_idx": 22,
+    "screener_box": [
+     918.125,
+     316.0546875,
+     71.25,
+     135.703125
+    ],
+    "assign_score": 0.899,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_44": {
+  "fps": 59.79,
+  "n_frames": 679,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 91,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     740.625,
+     372.65625,
+     56.25,
+     189.84375
+    ],
+    "assign_score": 0.405,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_45": {
+  "fps": 59.79,
+  "n_frames": 477,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 95,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     345.625,
+     362.8125,
+     76.25,
+     161.71875
+    ],
+    "assign_score": 0.432,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_46": {
+  "fps": 59.79,
+  "n_frames": 440,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "同一個掩護者擋兩次"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 48,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     248.125,
+     281.6015625,
+     61.25,
+     189.140625
+    ],
+    "assign_score": 0.355,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 131,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     276.25,
+     305.5078125,
+     117.5,
+     183.515625
+    ],
+    "assign_score": 1.146,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_47": {
+  "fps": 59.79,
+  "n_frames": 436,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 113,
+    "contact": false,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     949.375,
+     226.0546875,
+     78.75,
+     131.484375
+    ],
+    "assign_score": 1.043,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_48": {
+  "fps": 59.79,
+  "n_frames": 469,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 98,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     238.75,
+     244.6875,
+     85.0,
+     165.9375
+    ],
+    "assign_score": 0.802,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_49": {
+  "fps": 59.79,
+  "n_frames": 511,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 12,
+    "contact": false,
+    "idx": 1,
+    "coco_idx": 1,
+    "screener_box": [
+     410.625,
+     264.375,
+     106.25,
+     194.0625
+    ],
+    "assign_score": 1.037,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_50": {
+  "fps": 59.79,
+  "n_frames": 459,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 126,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     267.5,
+     185.9765625,
+     85.0,
+     163.828125
+    ],
+    "assign_score": 1.147,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_52": {
+  "fps": 59.79,
+  "n_frames": 506,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 86,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     347.5,
+     300.234375,
+     72.5,
+     140.625
+    ],
+    "assign_score": 0.94,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_53": {
+  "fps": 59.79,
+  "n_frames": 645,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 72,
+    "contact": false,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     517.5,
+     353.671875,
+     52.5,
+     161.71875
+    ],
+    "assign_score": 0.83,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_54": {
+  "fps": 59.79,
+  "n_frames": 505,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 66,
+    "contact": false,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     390.0,
+     302.34375,
+     62.5,
+     161.71875
+    ],
+    "assign_score": 1.176,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_55": {
+  "fps": 59.79,
+  "n_frames": 668,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 54,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     990.0,
+     241.5234375,
+     95.0,
+     177.890625
+    ],
+    "assign_score": 0.55,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_56": {
+  "fps": 59.79,
+  "n_frames": 515,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 140,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     336.25,
+     243.984375,
+     80.0,
+     137.8125
+    ],
+    "assign_score": 0.855,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_57": {
+  "fps": 59.79,
+  "n_frames": 341,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 54,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     423.75,
+     235.8984375,
+     97.5,
+     172.265625
+    ],
+    "assign_score": 1.072,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_58": {
+  "fps": 59.79,
+  "n_frames": 710,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 64,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     840.625,
+     248.5546875,
+     76.25,
+     158.203125
+    ],
+    "assign_score": 0.769,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_59": {
+  "fps": 59.79,
+  "n_frames": 315,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 26,
+    "contact": false,
+    "idx": 2,
+    "coco_idx": 2,
+    "screener_box": [
+     884.375,
+     298.125,
+     78.75,
+     139.21875
+    ],
+    "assign_score": 0.971,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_60": {
+  "fps": 59.79,
+  "n_frames": 388,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 44,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     858.125,
+     321.6796875,
+     58.75,
+     169.453125
+    ],
+    "assign_score": 0.479,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_61": {
+  "fps": 59.79,
+  "n_frames": 438,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 70,
+    "contact": false,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     976.25,
+     324.4921875,
+     70.0,
+     173.671875
+    ],
+    "assign_score": 0.856,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_62": {
+  "fps": 59.79,
+  "n_frames": 488,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 67,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     935.625,
+     237.65625,
+     76.25,
+     135.0
+    ],
+    "assign_score": 0.774,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_63": {
+  "fps": 59.79,
+  "n_frames": 720,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 36,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     668.125,
+     231.6796875,
+     68.75,
+     138.515625
+    ],
+    "assign_score": 1.332,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 123,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     662.5,
+     316.40625,
+     75.0,
+     178.59375
+    ],
+    "assign_score": 0.492,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_64": {
+  "fps": 59.79,
+  "n_frames": 511,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 60,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     280.625,
+     290.0390625,
+     101.25,
+     182.109375
+    ],
+    "assign_score": 0.717,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_65": {
+  "fps": 59.79,
+  "n_frames": 542,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 168,
+    "contact": true,
+    "idx": 14,
+    "coco_idx": 14,
+    "screener_box": [
+     940.0,
+     240.46875,
+     55.0,
+     125.15625
+    ],
+    "assign_score": 0.895,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_66": {
+  "fps": 59.79,
+  "n_frames": 398,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "同一個人擋兩次， 第一次實擋，第二次假擋"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 55,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     284.375,
+     218.671875,
+     63.75,
+     192.65625
+    ],
+    "assign_score": 0.993,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 179,
+    "contact": false,
+    "idx": 15,
+    "coco_idx": 15,
+    "screener_box": [
+     307.5,
+     265.78125,
+     65.0,
+     174.375
+    ],
+    "assign_score": 0.847,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_67": {
+  "fps": 59.79,
+  "n_frames": 547,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 26,
+    "contact": true,
+    "idx": 2,
+    "coco_idx": 2,
+    "screener_box": [
+     920.625,
+     262.96875,
+     46.25,
+     139.21875
+    ],
+    "assign_score": 0.397,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_68": {
+  "fps": 59.79,
+  "n_frames": 498,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "防守者繞過去"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 134,
+    "contact": false,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     301.25,
+     254.8828125,
+     82.5,
+     138.515625
+    ],
+    "assign_score": 0.847,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_69": {
+  "fps": 59.79,
+  "n_frames": 539,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 78,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     361.875,
+     264.375,
+     78.75,
+     130.78125
+    ],
+    "assign_score": 0.448,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_70": {
+  "fps": 59.79,
+  "n_frames": 502,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 33,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     745.0,
+     293.203125,
+     110.0,
+     167.34375
+    ],
+    "assign_score": 0.158,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_71": {
+  "fps": 59.79,
+  "n_frames": 568,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 149,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     325.0,
+     352.6171875,
+     92.5,
+     132.890625
+    ],
+    "assign_score": 0.397,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_72": {
+  "fps": 59.79,
+  "n_frames": 563,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 88,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 6,
+    "screener_box": [
+     849.375,
+     203.203125,
+     76.25,
+     212.34375
+    ],
+    "assign_score": 0.265,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_73": {
+  "fps": 59.79,
+  "n_frames": 521,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 63,
+    "contact": false,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     763.75,
+     386.015625,
+     75.0,
+     174.375
+    ],
+    "assign_score": 0.879,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_74": {
+  "fps": 59.79,
+  "n_frames": 472,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 74,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     861.875,
+     249.9609375,
+     101.25,
+     139.921875
+    ],
+    "assign_score": 0.373,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_75": {
+  "fps": 59.79,
+  "n_frames": 538,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 31,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     441.875,
+     292.1484375,
+     86.25,
+     241.171875
+    ],
+    "assign_score": 0.378,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_76": {
+  "fps": 59.79,
+  "n_frames": 392,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 40,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     790.0,
+     282.3046875,
+     130.0,
+     180.703125
+    ],
+    "assign_score": 0.181,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_77": {
+  "fps": 59.79,
+  "n_frames": 345,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 77,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     366.875,
+     301.2890625,
+     88.75,
+     132.890625
+    ],
+    "assign_score": 0.454,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 105,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     281.875,
+     241.875,
+     71.25,
+     142.03125
+    ],
+    "assign_score": 0.331,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_78": {
+  "fps": 59.79,
+  "n_frames": 364,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 56,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     651.25,
+     363.8671875,
+     52.5,
+     200.390625
+    ],
+    "assign_score": 0.33,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_79": {
+  "fps": 59.79,
+  "n_frames": 351,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 48,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     450.625,
+     333.28125,
+     86.25,
+     154.6875
+    ],
+    "assign_score": 0.261,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_80": {
+  "fps": 59.79,
+  "n_frames": 530,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 47,
+    "contact": false,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     766.875,
+     334.6875,
+     121.25,
+     160.3125
+    ],
+    "assign_score": 0.18,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_81": {
+  "fps": 59.79,
+  "n_frames": 565,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 155,
+    "contact": true,
+    "idx": 13,
+    "coco_idx": 13,
+    "screener_box": [
+     288.75,
+     242.2265625,
+     85.0,
+     141.328125
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   },
+   {
+    "frame": 207,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     355.0,
+     296.015625,
+     115.0,
+     172.96875
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_82": {
+  "fps": 59.79,
+  "n_frames": 537,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 46,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     835.0,
+     334.6875,
+     92.5,
+     156.09375
+    ],
+    "assign_score": 0.472,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_83": {
+  "fps": 59.79,
+  "n_frames": 538,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 40,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     877.5,
+     268.59375,
+     112.5,
+     163.125
+    ],
+    "assign_score": 0.486,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_84": {
+  "fps": 59.79,
+  "n_frames": 495,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 143,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     909.375,
+     249.609375,
+     116.25,
+     150.46875
+    ],
+    "assign_score": 0.572,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_86": {
+  "fps": 59.79,
+  "n_frames": 493,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 90,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     835.625,
+     363.8671875,
+     56.25,
+     139.921875
+    ],
+    "assign_score": 0.531,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_87": {
+  "fps": 59.79,
+  "n_frames": 506,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 61,
+    "contact": false,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     351.25,
+     245.390625,
+     85.0,
+     185.625
+    ],
+    "assign_score": 0.417,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_88": {
+  "fps": 59.79,
+  "n_frames": 524,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 191,
+    "contact": true,
+    "idx": 16,
+    "coco_idx": 16,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 1,
+    "source": "user_tid",
+    "tid_fixed": 2
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 43,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": 4,
+    "screener_box": [
+     363.75,
+     223.9453125,
+     77.5,
+     142.734375
+    ],
+    "assign_score": 0.393,
+    "n_screeners": 1,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_89": {
+  "fps": 59.79,
+  "n_frames": 584,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 159,
+    "contact": true,
+    "idx": 13,
+    "coco_idx": 13,
+    "screener_box": [
+     898.75,
+     281.25,
+     87.5,
+     189.84375
+    ],
+    "assign_score": 0.399,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_90": {
+  "fps": 59.79,
+  "n_frames": 317,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 9,
+    "contact": true,
+    "idx": 1,
+    "coco_idx": 1,
+    "screener_box": [
+     398.75,
+     220.78125,
+     50.0,
+     129.375
+    ],
+    "assign_score": 0.294,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_91": {
+  "fps": 59.79,
+  "n_frames": 444,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 135,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     290.625,
+     219.375,
+     63.75,
+     154.6875
+    ],
+    "assign_score": 0.397,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_100": {
+  "fps": 60.0,
+  "n_frames": 240,
+  "valid_start": 7,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  幫我把7frame 以前的cut掉  另外我標得frame是cut之前的"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 69,
+    "contact": true,
+    "idx": 6,
+    "coco_idx": 6,
+    "screener_box": [
+     872.8125,
+     330.64453125,
+     211.875,
+     275.2734375
+    ],
+    "assign_score": 0.247,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 122,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     1296.5625,
+     298.4765625,
+     129.375,
+     284.765625
+    ],
+    "assign_score": 0.462,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_101": {
+  "fps": 60.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 37,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 3,
+    "screener_box": [
+     1153.125,
+     312.1875,
+     97.5,
+     234.140625
+    ],
+    "assign_score": 0.58,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_102": {
+  "fps": 60.0,
+  "n_frames": 840,
+  "valid_start": 72,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  幫我把72frame 以前的cut掉  另外我標得frame是cut之前的"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 374,
+    "contact": true,
+    "idx": 31,
+    "coco_idx": 31,
+    "screener_box": [
+     1312.5,
+     340.13671875,
+     93.75,
+     239.4140625
+    ],
+    "assign_score": 0.428,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 445,
+    "contact": true,
+    "idx": 37,
+    "coco_idx": 37,
+    "screener_box": [
+     969.375,
+     336.4453125,
+     86.25,
+     213.046875
+    ],
+    "assign_score": 0.357,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_103": {
+  "fps": 60.0,
+  "n_frames": 660,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 252,
+    "contact": true,
+    "idx": 21,
+    "coco_idx": 21,
+    "screener_box": [
+     1228.125,
+     332.75390625,
+     97.5,
+     239.4140625
+    ],
+    "assign_score": 0.496,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 308,
+    "contact": true,
+    "idx": 26,
+    "coco_idx": 26,
+    "screener_box": [
+     982.5,
+     306.38671875,
+     97.5,
+     205.6640625
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_104": {
+  "fps": 60.0,
+  "n_frames": 420,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 195,
+    "contact": true,
+    "idx": 16,
+    "coco_idx": 16,
+    "screener_box": [
+     542.8125,
+     498.33984375,
+     121.875,
+     193.0078125
+    ],
+    "assign_score": 2.154,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_105": {
+  "fps": 60.0,
+  "n_frames": 420,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護  兩個都是slip"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 124,
+    "contact": false,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     464.0625,
+     439.27734375,
+     95.625,
+     264.7265625
+    ],
+    "assign_score": 0.28,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 132,
+    "contact": false,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     471.5625,
+     436.11328125,
+     84.375,
+     275.2734375
+    ],
+    "assign_score": 0.358,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 212,
+    "contact": false,
+    "idx": 18,
+    "coco_idx": 18,
+    "screener_box": [
+     465.0,
+     480.9375,
+     108.75,
+     234.140625
+    ],
+    "assign_score": 0.392,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_106": {
+  "fps": 60.0,
+  "n_frames": 600,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  slip"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 203,
+    "contact": false,
+    "idx": 17,
+    "coco_idx": 18,
+    "screener_box": [
+     1270.3125,
+     254.1796875,
+     103.125,
+     236.25
+    ],
+    "assign_score": 0.516,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 225,
+    "contact": true,
+    "idx": 19,
+    "coco_idx": 19,
+    "screener_box": [
+     1197.1875,
+     241.5234375,
+     121.875,
+     240.46875
+    ],
+    "assign_score": 0.487,
+    "n_screeners": 1,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_107": {
+  "fps": 60.0,
+  "n_frames": 420,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護",
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 140,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     1151.25,
+     368.61328125,
+     210.0,
+     230.9765625
+    ],
+    "assign_score": 0.299,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 235,
+    "contact": false,
+    "idx": 20,
+    "coco_idx": 19,
+    "screener_box": [
+     902.8125,
+     375.99609375,
+     76.875,
+     287.9296875
+    ],
+    "assign_score": 0.339,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_108": {
+  "fps": 60.0,
+  "n_frames": 540,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 180,
+    "contact": false,
+    "idx": 15,
+    "coco_idx": 15,
+    "screener_box": [
+     1390.3125,
+     344.35546875,
+     140.625,
+     218.3203125
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_109": {
+  "fps": 60.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 95,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     629.0625,
+     328.0078125,
+     118.125,
+     246.796875
+    ],
+    "assign_score": 0.438,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 103,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     1093.125,
+     351.2109375,
+     131.25,
+     242.578125
+    ],
+    "assign_score": 0.458,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_110": {
+  "fps": 60.0,
+  "n_frames": 540,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 83,
+    "contact": false,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     1425.0,
+     408.69140625,
+     105.0,
+     216.2109375
+    ],
+    "assign_score": 0.521,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_111": {
+  "fps": 60.0,
+  "n_frames": 480,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 112,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     546.5625,
+     473.5546875,
+     103.125,
+     229.921875
+    ],
+    "assign_score": 0.385,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 162,
+    "contact": true,
+    "idx": 14,
+    "coco_idx": 14,
+    "screener_box": [
+     695.625,
+     456.15234375,
+     112.5,
+     228.8671875
+    ],
+    "assign_score": 0.362,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_112": {
+  "fps": 60.0,
+  "n_frames": 780,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 392,
+    "contact": true,
+    "idx": 33,
+    "coco_idx": 33,
+    "screener_box": [
+     1342.5,
+     382.8515625,
+     120.0,
+     181.40625
+    ],
+    "assign_score": 0.266,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 451,
+    "contact": true,
+    "idx": 38,
+    "coco_idx": 38,
+    "screener_box": [
+     1290.9375,
+     346.46484375,
+     80.625,
+     186.6796875
+    ],
+    "assign_score": 0.327,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_113": {
+  "fps": 60.0,
+  "n_frames": 600,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 360,
+    "contact": false,
+    "idx": 30,
+    "coco_idx": 30,
+    "screener_box": [
+     537.1875,
+     366.50390625,
+     99.375,
+     207.7734375
+    ],
+    "assign_score": 0.277,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 424,
+    "contact": true,
+    "idx": 35,
+    "coco_idx": 35,
+    "screener_box": [
+     718.125,
+     317.4609375,
+     78.75,
+     198.28125
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_114": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 123,
+    "contact": false,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": [
+     435.0,
+     470.91796875,
+     112.5,
+     161.3671875
+    ],
+    "assign_score": 0.317,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 136,
+    "contact": true,
+    "idx": 23,
+    "coco_idx": 23,
+    "screener_box": [
+     543.75,
+     419.23828125,
+     97.5,
+     165.5859375
+    ],
+    "assign_score": null,
+    "n_screeners": 3,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_115": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 23,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護 幫我把23frame 以前的cut掉  另外我標得frame是cut之前的"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 98,
+    "contact": true,
+    "idx": 16,
+    "coco_idx": 16,
+    "screener_box": [
+     1350.0,
+     490.95703125,
+     97.5,
+     197.2265625
+    ],
+    "assign_score": 0.384,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 122,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": [
+     1175.625,
+     473.5546875,
+     67.5,
+     213.046875
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_116": {
+  "fps": 30.0,
+  "n_frames": 180,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 102,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     695.625,
+     457.734375,
+     123.75,
+     153.984375
+    ],
+    "assign_score": 0.403,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 48,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "user_tid",
+    "tid_fixed": 1,
+    "reason": "沒有檔"
+   }
+  ]
+ },
+ "screen_117": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 112,
+    "contact": true,
+    "idx": 19,
+    "coco_idx": 19,
+    "screener_box": [
+     1273.125,
+     519.9609375,
+     127.5,
+     238.359375
+    ],
+    "assign_score": 0.404,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 128,
+    "contact": true,
+    "idx": 21,
+    "coco_idx": 21,
+    "screener_box": [
+     983.4375,
+     496.23046875,
+     88.125,
+     226.7578125
+    ],
+    "assign_score": 0.454,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_118": {
+  "fps": 30.0,
+  "n_frames": 180,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 55,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     627.1875,
+     518.37890625,
+     80.625,
+     203.5546875
+    ],
+    "assign_score": 0.375,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 65,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     843.75,
+     507.83203125,
+     78.75,
+     201.4453125
+    ],
+    "assign_score": 0.236,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_119": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 114,
+    "contact": true,
+    "idx": 19,
+    "coco_idx": 19,
+    "screener_box": [
+     525.9375,
+     536.8359375,
+     95.625,
+     194.0625
+    ],
+    "assign_score": 0.557,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_120": {
+  "fps": 30.0,
+  "n_frames": 180,
+  "valid_start": 24,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護 24frame 前cut"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 24,
+    "contact": true,
+    "idx": 4,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 52,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     908.4375,
+     456.6796875,
+     69.375,
+     210.9375
+    ],
+    "assign_score": 0.261,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "重複標記"
+   }
+  ]
+ },
+ "screen_121": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 72,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     593.4375,
+     542.63671875,
+     118.125,
+     220.4296875
+    ],
+    "assign_score": 0.331,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_122": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 44,
+    "contact": true,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     1311.5625,
+     468.80859375,
+     148.125,
+     214.1015625
+    ],
+    "assign_score": 0.52,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_123": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 30,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     731.25,
+     448.76953125,
+     90.0,
+     222.5390625
+    ],
+    "assign_score": 0.54,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_124": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 171,
+    "contact": true,
+    "idx": 28,
+    "coco_idx": 28,
+    "screener_box": [
+     1204.6875,
+     392.87109375,
+     211.875,
+     226.7578125
+    ],
+    "assign_score": 0.402,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_125": {
+  "fps": 30.0,
+  "n_frames": 270,
+  "valid_start": 10,
+  "pending": false,
+  "notes": [
+   "10frame 前cut"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 106,
+    "contact": true,
+    "idx": 18,
+    "coco_idx": 18,
+    "screener_box": [
+     333.75,
+     522.59765625,
+     146.25,
+     193.0078125
+    ],
+    "assign_score": 0.563,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_126": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 43,
+    "contact": true,
+    "idx": 7,
+    "coco_idx": 6,
+    "screener_box": [
+     583.125,
+     536.30859375,
+     127.5,
+     203.5546875
+    ],
+    "assign_score": 0.498,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_127": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 72,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     749.0625,
+     582.71484375,
+     91.875,
+     159.2578125
+    ],
+    "assign_score": 0.465,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_128": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 32,
+    "contact": true,
+    "idx": 5,
+    "coco_idx": 5,
+    "screener_box": [
+     661.875,
+     378.6328125,
+     108.75,
+     185.625
+    ],
+    "assign_score": 0.382,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_129": {
+  "fps": 30.0,
+  "n_frames": 330,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 121,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": [
+     1228.125,
+     551.6015625,
+     161.25,
+     215.15625
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   },
+   {
+    "frame": 121,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": [
+     938.4375,
+     470.390625,
+     80.625,
+     270.0
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   },
+   {
+    "frame": 150,
+    "contact": true,
+    "idx": 25,
+    "coco_idx": 25,
+    "screener_box": [
+     1064.0625,
+     495.703125,
+     69.375,
+     234.140625
+    ],
+    "assign_score": 0.228,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_130": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 246,
+    "contact": true,
+    "idx": 41,
+    "coco_idx": 41,
+    "screener_box": [
+     522.1875,
+     594.31640625,
+     88.125,
+     152.9296875
+    ],
+    "assign_score": 0.427,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_131": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 84,
+    "contact": true,
+    "idx": 14,
+    "coco_idx": 14,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 1,
+    "source": "user_tid",
+    "tid_fixed": 10
+   },
+   {
+    "frame": 133,
+    "contact": true,
+    "idx": 22,
+    "coco_idx": 22,
+    "screener_box": [
+     822.1875,
+     506.25,
+     110.625,
+     240.46875
+    ],
+    "assign_score": 0.623,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_132": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 112,
+    "contact": true,
+    "idx": 19,
+    "coco_idx": 19,
+    "screener_box": [
+     441.5625,
+     480.41015625,
+     106.875,
+     249.9609375
+    ],
+    "assign_score": 0.527,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 132,
+    "contact": true,
+    "idx": 22,
+    "coco_idx": 22,
+    "screener_box": [
+     751.875,
+     536.8359375,
+     97.5,
+     221.484375
+    ],
+    "assign_score": 0.406,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_133": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 8,
+  "pending": false,
+  "notes": [
+   "8frame 前cut"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 205,
+    "contact": true,
+    "idx": 34,
+    "coco_idx": 34,
+    "screener_box": [
+     1445.625,
+     468.28125,
+     82.5,
+     204.609375
+    ],
+    "assign_score": 0.323,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_134": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 7,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  7frame前 cut  slip"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 103,
+    "contact": false,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     368.4375,
+     471.97265625,
+     148.125,
+     178.2421875
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 121,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 1,
+    "source": "user",
+    "screener_unboxed": true,
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_135": {
+  "fps": 30.0,
+  "n_frames": 180,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 69,
+    "contact": false,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     1383.75,
+     464.0625,
+     123.75,
+     208.828125
+    ],
+    "assign_score": 0.482,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_136": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 18,
+    "contact": true,
+    "idx": 3,
+    "coco_idx": 4,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user_tid",
+    "tid_fixed": 3
+   },
+   {
+    "frame": 89,
+    "contact": true,
+    "idx": 15,
+    "coco_idx": 15,
+    "screener_box": [
+     750.0,
+     359.6484375,
+     135.0,
+     236.25
+    ],
+    "assign_score": 0.219,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 47,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     1214.0625,
+     419.765625,
+     193.125,
+     257.34375
+    ],
+    "assign_score": 0.319,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_137": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 90,
+    "contact": true,
+    "idx": 15,
+    "coco_idx": 15,
+    "screener_box": [
+     364.6875,
+     494.6484375,
+     110.625,
+     232.03125
+    ],
+    "assign_score": 0.54,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_138": {
+  "fps": 30.0,
+  "n_frames": 270,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 116,
+    "contact": true,
+    "idx": 19,
+    "coco_idx": 19,
+    "screener_box": [
+     408.75,
+     573.75,
+     150.0,
+     229.921875
+    ],
+    "assign_score": 0.618,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_139": {
+  "fps": 30.0,
+  "n_frames": 390,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 238,
+    "contact": true,
+    "idx": 40,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_140": {
+  "fps": 30.0,
+  "n_frames": 270,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 169,
+    "contact": true,
+    "idx": 28,
+    "coco_idx": 28,
+    "screener_box": [
+     1392.1875,
+     446.1328125,
+     73.125,
+     172.96875
+    ],
+    "assign_score": 0.547,
+    "n_screeners": 2,
+    "source": "auto"
+   },
+   {
+    "frame": 180,
+    "contact": true,
+    "idx": 30,
+    "coco_idx": 30,
+    "screener_box": [
+     1004.0625,
+     447.71484375,
+     91.875,
+     165.5859375
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_141": {
+  "fps": 30.0,
+  "n_frames": 120,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 47,
+    "contact": true,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     511.875,
+     288.45703125,
+     127.5,
+     252.0703125
+    ],
+    "assign_score": 0.412,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 66,
+    "contact": true,
+    "idx": 11,
+    "coco_idx": 11,
+    "screener_box": [
+     791.25,
+     342.24609375,
+     105.0,
+     201.4453125
+    ],
+    "assign_score": 0.503,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_142": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 47,
+    "contact": false,
+    "idx": 8,
+    "coco_idx": 8,
+    "screener_box": [
+     1186.875,
+     344.35546875,
+     90.0,
+     193.0078125
+    ],
+    "assign_score": 1.913,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_143": {
+  "fps": 30.0,
+  "n_frames": 210,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 97,
+    "contact": true,
+    "idx": 16,
+    "coco_idx": 16,
+    "screener_box": [
+     565.3125,
+     316.93359375,
+     99.375,
+     224.6484375
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 102,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     753.75,
+     382.8515625,
+     120.0,
+     225.703125
+    ],
+    "assign_score": 0.574,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_144": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 104,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     1378.125,
+     415.01953125,
+     90.0,
+     230.9765625
+    ],
+    "assign_score": 0.286,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 124,
+    "contact": true,
+    "idx": 21,
+    "coco_idx": 21,
+    "screener_box": [
+     1249.6875,
+     499.39453125,
+     69.375,
+     224.6484375
+    ],
+    "assign_score": 0.374,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_145": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 41,
+    "contact": true,
+    "idx": 7,
+    "coco_idx": 7,
+    "screener_box": [
+     1309.6875,
+     434.53125,
+     80.625,
+     238.359375
+    ],
+    "assign_score": 0.363,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 74,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     988.125,
+     508.359375,
+     105.0,
+     267.890625
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_146": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 104,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_147": {
+  "fps": 30.0,
+  "n_frames": 330,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 103,
+    "contact": true,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     1302.1875,
+     391.81640625,
+     69.375,
+     184.5703125
+    ],
+    "assign_score": 0.384,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 246,
+    "contact": false,
+    "idx": 41,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "user_tid",
+    "tid_fixed": 0
+   }
+  ],
+  "excluded": []
+ },
+ "screen_148": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 189,
+    "contact": true,
+    "idx": 32,
+    "coco_idx": 32,
+    "screener_box": [
+     470.625,
+     312.71484375,
+     116.25,
+     243.6328125
+    ],
+    "assign_score": 0.377,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_149": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 84,
+    "contact": true,
+    "idx": 14,
+    "coco_idx": 15,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 1,
+    "source": "user_tid",
+    "tid_fixed": 3
+   },
+   {
+    "frame": 122,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": 20,
+    "screener_box": [
+     1277.8125,
+     394.453125,
+     91.875,
+     204.609375
+    ],
+    "assign_score": 0.299,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_150": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 211,
+    "contact": true,
+    "idx": 35,
+    "coco_idx": 35,
+    "screener_box": [
+     1324.6875,
+     430.3125,
+     106.875,
+     246.796875
+    ],
+    "assign_score": 0.334,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 279,
+    "contact": true,
+    "idx": 46,
+    "coco_idx": 46,
+    "screener_box": [
+     1136.25,
+     546.328125,
+     82.5,
+     253.125
+    ],
+    "assign_score": 0.445,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_151": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 129,
+    "contact": true,
+    "idx": 22,
+    "coco_idx": 22,
+    "screener_box": [
+     1308.75,
+     414.4921875,
+     116.25,
+     196.171875
+    ],
+    "assign_score": 0.5,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 141,
+    "contact": true,
+    "idx": 24,
+    "coco_idx": 24,
+    "screener_box": [
+     981.5625,
+     415.01953125,
+     65.625,
+     203.5546875
+    ],
+    "assign_score": 0.309,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_152": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 189,
+    "contact": true,
+    "idx": 32,
+    "coco_idx": 32,
+    "screener_box": [
+     1387.5,
+     394.453125,
+     116.25,
+     189.84375
+    ],
+    "assign_score": 0.468,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_153": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 61,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     571.875,
+     470.390625,
+     90.0,
+     208.828125
+    ],
+    "assign_score": 0.503,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_154": {
+  "fps": 30.0,
+  "n_frames": 420,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 101,
+    "contact": false,
+    "idx": 17,
+    "coco_idx": 17,
+    "screener_box": [
+     300.0,
+     478.828125,
+     127.5,
+     278.4375
+    ],
+    "assign_score": 0.577,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_155": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 60,
+    "contact": true,
+    "idx": 10,
+    "coco_idx": 10,
+    "screener_box": [
+     345.9375,
+     445.078125,
+     99.375,
+     210.9375
+    ],
+    "assign_score": 0.511,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_156": {
+  "fps": 30.0,
+  "n_frames": 360,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 196,
+    "contact": true,
+    "idx": 33,
+    "coco_idx": 33,
+    "screener_box": [
+     515.625,
+     506.77734375,
+     112.5,
+     188.7890625
+    ],
+    "assign_score": 0.611,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 181,
+    "contact": true,
+    "idx": 30,
+    "coco_idx": 30,
+    "screener_box": [
+     447.1875,
+     586.93359375,
+     151.875,
+     178.2421875
+    ],
+    "assign_score": 0.404,
+    "n_screeners": 2,
+    "source": "auto",
+    "reason": "沒有掩護"
+   }
+  ]
+ },
+ "screen_157": {
+  "fps": 30.0,
+  "n_frames": 270,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 121,
+    "contact": true,
+    "idx": 20,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_158": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 105,
+    "contact": true,
+    "idx": 18,
+    "coco_idx": 18,
+    "screener_box": [
+     498.75,
+     534.7265625,
+     135.0,
+     229.921875
+    ],
+    "assign_score": 0.614,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_159": {
+  "fps": 30.0,
+  "n_frames": 240,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 159,
+    "contact": false,
+    "idx": 26,
+    "coco_idx": 26,
+    "screener_box": [
+     1155.0,
+     378.6328125,
+     97.5,
+     156.09375
+    ],
+    "assign_score": 0.816,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_160": {
+  "fps": 30.0,
+  "n_frames": 330,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 154,
+    "contact": false,
+    "idx": 26,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_161": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護",
+   "slip假擋"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 166,
+    "contact": true,
+    "idx": 28,
+    "coco_idx": 28,
+    "screener_box": [
+     1355.625,
+     450.87890625,
+     168.75,
+     230.9765625
+    ],
+    "assign_score": 0.636,
+    "n_screeners": 2,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 172,
+    "contact": false,
+    "idx": 29,
+    "coco_idx": 29,
+    "screener_box": [
+     1155.9375,
+     437.6953125,
+     88.125,
+     200.390625
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_162": {
+  "fps": 30.0,
+  "n_frames": 390,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 176,
+    "contact": true,
+    "idx": 29,
+    "coco_idx": 29,
+    "screener_box": [
+     523.125,
+     525.76171875,
+     97.5,
+     178.2421875
+    ],
+    "assign_score": 0.737,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_163": {
+  "fps": 30.0,
+  "n_frames": 150,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 54,
+    "contact": true,
+    "idx": 9,
+    "coco_idx": 9,
+    "screener_box": [
+     503.4375,
+     356.484375,
+     106.875,
+     185.625
+    ],
+    "assign_score": null,
+    "n_screeners": 3,
+    "source": "user"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 71,
+    "contact": true,
+    "idx": 12,
+    "coco_idx": 12,
+    "screener_box": [
+     750.9375,
+     334.86328125,
+     80.625,
+     201.4453125
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_164": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 0,
+  "pending": false,
+  "notes": [],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 201,
+    "contact": true,
+    "idx": 34,
+    "coco_idx": null,
+    "screener_box": null,
+    "assign_score": null,
+    "n_screeners": 0,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ },
+ "screen_165": {
+  "fps": 30.0,
+  "n_frames": 300,
+  "valid_start": 14,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  14frame前cut"
+  ],
+  "user_confirmed": false,
+  "events": [
+   {
+    "frame": 193,
+    "contact": true,
+    "idx": 32,
+    "coco_idx": 32,
+    "screener_box": [
+     1390.3125,
+     554.765625,
+     88.125,
+     204.609375
+    ],
+    "assign_score": 0.356,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": [
+   {
+    "frame": 228,
+    "contact": true,
+    "idx": 38,
+    "coco_idx": 38,
+    "screener_box": [
+     1230.9375,
+     489.375,
+     61.875,
+     139.21875
+    ],
+    "assign_score": null,
+    "n_screeners": 2,
+    "source": "user",
+    "reason": "無球檔"
+   }
+  ]
+ },
+ "screen_166": {
+  "fps": 30.0,
+  "n_frames": 390,
+  "valid_start": 15,
+  "pending": false,
+  "notes": [
+   "COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  15frame前cut",
+   "slip假擋"
+  ],
+  "user_confirmed": true,
+  "events": [
+   {
+    "frame": 77,
+    "contact": true,
+    "idx": 13,
+    "coco_idx": 13,
+    "screener_box": [
+     1057.5,
+     550.01953125,
+     120.0,
+     241.5234375
+    ],
+    "assign_score": 1.223,
+    "n_screeners": 1,
+    "source": "auto"
+   },
+   {
+    "frame": 160,
+    "contact": false,
+    "idx": 27,
+    "coco_idx": 27,
+    "screener_box": [
+     1288.125,
+     551.6015625,
+     90.0,
+     225.703125
+    ],
+    "assign_score": 0.448,
+    "n_screeners": 1,
+    "source": "auto"
+   }
+  ],
+  "excluded": []
+ }
+}

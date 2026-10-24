@@ -1,0 +1,191 @@
+﻿clip,fps,總幀數,screener,contact_frame,contact(yes/no),note
+screen_11,60,503,1,58,t,
+screen_12,60,533,1,120,t,
+screen_13,60,322,1,0,t,COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護
+screen_13,60,322,2,0,t,
+screen_13,60,322,3,0,t,
+screen_14,60,372,1,121,t,
+screen_15,60,351,1,60,t,
+screen_16,59.94,439,1,89,t,
+screen_17,60,347,1,78,t,
+screen_18,59.94,448,1,68,t,
+screen_19,59.94,433,1,104,t,
+screen_20,59.94,467,1,144,t,
+screen_21,59.94,584,1,80,t,
+screen_22,59.94,386,1,124,t,
+screen_23,59.94,537,1,96,f,
+screen_24,59.94,469,1,20,t,
+screen_25,60,407,1,115,t,
+screen_26,59.79,310,1,135,t,
+screen_27,59.79,466,1,61,f,slip假擋
+screen_28,59.79,514,1,114,f,防守者繞過去
+screen_29,59.79,593,1,85,f,防守者繞過去
+screen_30,59.79,639,1,98,f,slip假擋
+screen_31,59.79,550,1,82,f,slip假擋
+screen_32,59.79,495,1,65,t,
+screen_33,59.79,500,1,69,t,
+screen_34,59.79,512,1,105,f,slip假擋
+screen_35,59.79,561,1,208,f,slip假擋
+screen_36,59.79,496,1,141,t,
+screen_37,59.79,695,1,176,t,影片幫我從第一偵開始算 前面cut掉 
+screen_38,59.79,588,1,128,t,
+screen_39,59.79,423,1,146,f,slip假擋
+screen_40,59.79,471,1,66,t,
+screen_41,59.79,532,1,129,t,
+screen_42,59.79,537,1,96,f,防守者繞過去
+screen_43,59.79,550,1,264,f,slip假擋
+screen_44,59.79,679,1,91,t,
+screen_45,59.79,477,1,95,t,
+screen_46,59.79,440,1,"48, 131",t,同一個掩護者擋兩次
+screen_47,59.79,436,1,113,f,slip假擋
+screen_48,59.79,469,1,98,f,slip假擋
+screen_49,59.79,511,1,12,f,slip假擋
+screen_50,59.79,459,1,126,t,
+screen_52,59.79,506,1,86,f,slip假擋
+screen_53,59.79,645,1,72,f,防守者繞過去
+screen_54,59.79,505,1,66,f,slip假擋
+screen_55,59.79,668,1,54,t,
+screen_56,59.79,515,1,140,t,
+screen_57,59.79,341,1,54,t,
+screen_58,59.79,710,1,64,t,
+screen_59,59.79,315,1,26,f,slip假擋
+screen_60,59.79,388,1,44,t,
+screen_61,59.79,438,1,70,f,防守者繞過去
+screen_62,59.79,488,1,67,t,
+screen_63,59.79,720,1,36,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_63,59.79,720,2,123,t,
+screen_64,59.79,511,1,60,t,
+screen_65,59.79,542,1,168,t,
+screen_66,59.79,398,1,"55, 179","t, f",同一個人擋兩次， 第一次實擋，第二次假擋
+screen_67,59.79,547,1,26,t,
+screen_68,59.79,498,1,134,f,防守者繞過去
+screen_69,59.79,539,1,78,f,slip假擋
+screen_70,59.79,502,1,33,t,
+screen_71,59.79,568,1,149,t,
+screen_72,59.79,563,1,88,f,slip假擋
+screen_73,59.79,521,1,63,f,slip假擋
+screen_74,59.79,472,1,74,t,
+screen_75,59.79,538,1,31,t,
+screen_76,59.79,392,1,40,t,
+screen_77,59.79,345,1,77,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_77,59.79,345,2,105,t,
+screen_78,59.79,364,1,56,t,
+screen_79,59.79,351,1,48,t,
+screen_80,59.79,530,1,47,f,slip假擋
+screen_81,59.79,565,1,155,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_81,59.79,565,2,207,t,
+screen_82,59.79,537,1,46,t,
+screen_83,59.79,538,1,40,t,
+screen_84,59.79,495,1,143,t,
+screen_86,59.79,493,1,90,f,slip假擋
+screen_87,59.79,506,1,61,f,slip假擋
+screen_88,59.79,524,1,43,t,
+screen_89,59.79,584,1,159,t,
+screen_90,59.79,317,1,9,t,
+screen_91,59.79,444,1,135,t,
+screen_100,60,240,1,69,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  幫我把7frame 以前的cut掉  另外我標得frame是cut之前的
+screen_100,60,240,2,122,t,
+screen_101,60,360,1,37,t,
+screen_102,60,840,1,374,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  幫我把72frame 以前的cut掉  另外我標得frame是cut之前的
+screen_102,60,840,2,445,t,
+screen_103,60,660,1,252,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_103,60,660,2,308,t,
+screen_104,60,420,1,195,t,
+screen_105,60,420,1,124,f,COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護  兩個都是slip
+screen_105,60,420,2,132,f,
+screen_105,60,420,3,212,f,
+screen_106,60,600,1,203,f,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  slip
+screen_106,60,600,2,225,t,
+screen_107,60,420,1,140,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_107,60,420,2,235,f,slip假擋
+screen_108,60,540,1,180,f,slip假擋
+screen_108,60,540,2,186,t,
+screen_109,60,360,1,95,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_109,60,360,2,103,t,
+screen_110,60,540,1,83,f,slip假擋
+screen_111,60,480,1,112,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_111,60,480,2,162,t,
+screen_112,60,780,1,392,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_112,60,780,2,451,t,
+screen_113,60,600,1,360,f,slip假擋
+screen_113,60,600,2,424,t,
+screen_114,30,240,1,123,f,slip假擋
+screen_114,30,240,2,136,t,
+screen_114,30,240,3,,,
+screen_115,30,210,1,98,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護 幫我把23frame 以前的cut掉  另外我標得frame是cut之前的
+screen_115,30,210,2,122,t,
+screen_116,30,180,1,102,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_116,30,180,2,,,
+screen_117,30,240,1,112,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_117,30,240,2,128,t,
+screen_118,30,180,1,55,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_118,30,180,2,65,t,
+screen_119,30,210,1,114,t,
+screen_120,30,180,1,24,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護 24frame 前cut
+screen_120,30,180,2,52,t,
+screen_121,30,210,1,72,t,
+screen_122,30,240,1,44,t,
+screen_123,30,150,1,30,t,
+screen_124,30,240,1,171,t,
+screen_125,30,270,1,106,t,10frame 前cut
+screen_126,30,150,1,43,t,
+screen_127,30,300,1,72,t,
+screen_128,30,210,1,32,t,
+screen_129,30,330,1,121,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_129,30,330,2,150,t,
+screen_130,30,360,1,139,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_130,30,360,2,88,t,
+screen_131,30,210,1,133,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_131,30,210,2,,,
+screen_132,30,210,1,112,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_132,30,210,2,132,t,
+screen_133,30,360,1,205,t,8frame 前cut
+screen_134,30,360,1,103,f,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  7frame前 cut  slip
+screen_134,30,360,2,121,t,
+screen_135,30,180,1,69,f,slip假擋
+screen_136,30,210,1,47,t,COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護
+screen_136,30,210,2,89,t,
+screen_136,30,210,3,,,
+screen_137,30,210,1,90,t,
+screen_138,30,270,1,116,t,
+screen_139,30,390,1,238,t,
+screen_140,30,270,1,169,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_140,30,270,2,180,t,
+screen_141,30,120,1,47,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_141,30,120,2,66,t,
+screen_142,30,150,1,47,f,slip假擋
+screen_143,30,210,1,97,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_143,30,210,2,102,t,
+screen_144,30,240,1,104,t,
+screen_144,30,240,2,124,t,
+screen_145,30,150,1,41,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_145,30,150,2,74,t,
+screen_146,30,360,1,104,t,
+screen_147,30,330,1,103,t,
+screen_148,30,300,1,189,t,
+screen_149,30,240,1,122,t,
+screen_150,30,360,1,211,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_150,30,360,2,279,t,
+screen_151,30,300,1,129,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_151,30,300,2,141,t,
+screen_152,30,360,1,189,t,
+screen_153,30,150,1,61,t,
+screen_154,30,420,1,101,f,slip假擋
+screen_155,30,150,1,60,t,
+screen_156,30,360,1,181,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_156,30,360,2,196,t,
+screen_157,30,270,1,121,t,
+screen_158,30,240,1,105,t,
+screen_159,30,240,1,159,f,slip假擋
+screen_160,30,330,1,154,f,slip假擋
+screen_161,30,300,1,166,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護
+screen_161,30,300,2,172,f,slip假擋
+screen_162,30,390,1,176,t,
+screen_163,30,150,1,54,t,COCO 同一幀有 3 個 screener，可能是雙擋/連續掩護
+screen_163,30,150,2,71,t,
+screen_163,30,150,3,,,
+screen_164,30,300,1,201,t,
+screen_165,30,300,1,193,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  14frame前cut 
+screen_165,30,300,2,228,t,
+screen_166,30,390,1,77,t,COCO 同一幀有 2 個 screener，可能是雙擋/連續掩護  15frame前cut
+screen_166,30,390,2,160,f,slip假擋

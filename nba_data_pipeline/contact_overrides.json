@@ -1,0 +1,196 @@
+{
+  "_doc": "使用者看 output_videos/contact_confirm/ 確認圖後的修正（2026-10-08）。letters 的 A/B 是確認圖上每一格自己的編號（= 該 COCO 影格 screener 框的順序）。值為多個字母 = 同一幀多人同時掩護；'unboxed' = 掩護者在那一刻沒被框到，重訓時改用軌跡判斷。replace_events 直接取代該片 CSV 裡的掩護。沒列的多掩護 clip = 使用者確認原本的選擇正確。",
+  "screen_13": {
+    "replace_events": [
+      {
+        "frame": 0,
+        "contact": true,
+        "letters": [
+          "A",
+          "B"
+        ]
+      }
+    ]
+  },
+  "screen_81": {
+    "letters": {
+      "155": [
+        "A"
+      ],
+      "207": [
+        "A"
+      ]
+    }
+  },
+  "screen_103": {
+    "letters": {
+      "308": [
+        "A"
+      ]
+    }
+  },
+  "screen_108": {
+    "replace_events": [
+      {
+        "frame": 180,
+        "contact": false,
+        "letters": [
+          "A"
+        ]
+      }
+    ],
+    "_note": "2026-10-16 使用者確認：180 是 #1 幫持球者 #2 的假擋；#9（186）是西班牙擋拆的背擋（幫 #1 擋），不是幫持球者擋 → 先不標，之後做無球掩護再處理"
+  },
+  "screen_113": {
+    "letters": {
+      "424": [
+        "A"
+      ]
+    }
+  },
+  "screen_114": {
+    "letters": {
+      "136": [
+        "A"
+      ]
+    }
+  },
+  "screen_115": {
+    "letters": {
+      "122": [
+        "A"
+      ]
+    }
+  },
+  "screen_129": {
+    "letters": {
+      "121": [
+        "A",
+        "B"
+      ]
+    }
+  },
+  "screen_130": {
+    "replace_events": [
+      {
+        "frame": 246,
+        "contact": true
+      }
+    ]
+  },
+  "screen_134": {
+    "letters": {
+      "103": [
+        "A"
+      ],
+      "121": [
+        "unboxed"
+      ]
+    }
+  },
+  "screen_140": {
+    "letters": {
+      "180": [
+        "B"
+      ]
+    }
+  },
+  "screen_143": {
+    "letters": {
+      "97": [
+        "B"
+      ]
+    }
+  },
+  "screen_145": {
+    "letters": {
+      "74": [
+        "B"
+      ]
+    }
+  },
+  "screen_161": {
+    "letters": {
+      "172": [
+        "A"
+      ]
+    }
+  },
+  "screen_163": {
+    "letters": {
+      "54": [
+        "B"
+      ],
+      "71": [
+        "A"
+      ]
+    }
+  },
+  "screen_165": {
+    "letters": {
+      "228": [
+        "B"
+      ]
+    }
+  },
+  "screen_88": {
+    "add_events": [
+      {
+        "frame": 191,
+        "contact": true,
+        "tid": 2
+      }
+    ],
+    "_note": "2026-10-16 使用者確認：模型抓到、CSV 沒標到的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）"
+  },
+  "screen_116": {
+    "add_events": [
+      {
+        "frame": 48,
+        "contact": true,
+        "tid": 1
+      }
+    ],
+    "_note": "2026-10-16 使用者確認：模型抓到、CSV 沒標到的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）"
+  },
+  "screen_147": {
+    "add_events": [
+      {
+        "frame": 246,
+        "contact": false,
+        "tid": 0
+      }
+    ],
+    "_note": "2026-10-16 使用者確認：模型抓到、CSV 沒標到的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）（假擋）"
+  },
+  "screen_136": {
+    "add_events": [
+      {
+        "frame": 18,
+        "contact": true,
+        "tid": 3
+      }
+    ],
+    "_note": "2026-10-18 使用者確認（交叉驗證抓錯確認圖 screen_fp_check）：模型抓到、CSV 沒標到、幫持球者擋的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）"
+  },
+  "screen_149": {
+    "add_events": [
+      {
+        "frame": 84,
+        "contact": true,
+        "tid": 3
+      }
+    ],
+    "_note": "2026-10-18 使用者確認（交叉驗證抓錯確認圖 screen_fp_check）：模型抓到、CSV 沒標到、幫持球者擋的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）"
+  },
+  "screen_131": {
+    "add_events": [
+      {
+        "frame": 84,
+        "contact": true,
+        "tid": 10
+      }
+    ],
+    "_note": "2026-10-18 使用者確認（交叉驗證抓錯確認圖 screen_fp_check）：模型抓到、CSV 沒標到、幫持球者擋的真掩護（tid = stubs/train_sam3 5fps 追蹤編號）"
+  }
+}
