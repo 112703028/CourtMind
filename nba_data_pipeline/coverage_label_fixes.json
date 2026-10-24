@@ -1,0 +1,114 @@
+{
+ "screen_16:9@7": {
+  "label": "hedge",
+  "src": "blitz_check B01：是延誤"
+ },
+ "screen_29:8@7": {
+  "label": "hedge",
+  "src": "blitz_check B05：是延誤"
+ },
+ "screen_68:4@11": {
+  "label": "hedge",
+  "src": "blitz_check B09：是延誤沒錯"
+ },
+ "screen_332:2@10": {
+  "label": "hedge",
+  "src": "blitz_check B22：應該是延誤 確實ds有上前 但後來ds會靠近screener是因為handler已經投了 所以要去搶籃板"
+ },
+ "screen_32:1@5": {
+  "label": "drop",
+  "src": "blitz_check B06：退防沒錯"
+ },
+ "screen_36:8@12": {
+  "label": "drop",
+  "src": "blitz_check B07：退防沒錯"
+ },
+ "screen_306:0@8": {
+  "label": "drop",
+  "src": "blitz_check B20：確實應該是退防"
+ },
+ "screen_489:8@6": {
+  "label": "drop",
+  "src": "blitz_check B29：應該是退防 只是持球者投藍的時候ds有撲上去"
+ },
+ "screen_315:2@2": {
+  "label": "switch",
+  "src": "blitz_check B21：確實是換防"
+ },
+ "screen_26:3@11": {
+  "label": "hedge",
+  "src": "blitz_check B02：dh還是有去追handler"
+ },
+ "screen_292:1@5": {
+  "label": "hedge",
+  "src": "blitz_check B19：dh 還是離handler最近"
+ },
+ "screen_50:3@11": {
+  "label": "drop",
+  "src": "blitz_check B08：我覺得llm講得有道理 但不確定 你自己看一下"
+ },
+ "screen_220:6@6": {
+  "label": "hedge",
+  "src": "blitz_check B16：llm說得有道理  確實ds有上前 只是持球者太快 dh來不及回去補screener"
+ },
+ "screen_283:9@2": {
+  "label": "hedge",
+  "src": "blitz_check B17：llm 說的對 最後確實是由dh回去守handler"
+ },
+ "screen_438:5@8": {
+  "label": "drop",
+  "src": "blitz_check B23：llm看到防守者退後的時候 持球者已經投籃了  所以防守者才往籃框移動去搶籃板"
+ },
+ "screen_28:0@10": {
+  "either": [
+   "switch",
+   "blitz"
+  ],
+  "src": "blitz_check B04：這個感覺是在換防和包夾中間  因為ds過掩護後有先往handler靠近一夏再跑去找screener"
+ },
+ "screen_193:8@10": {
+  "either": [
+   "switch",
+   "blitz"
+  ],
+  "src": "blitz_check B13：不確定 確實ds有上前 但DH也一直追著HANDLER"
+ },
+ "screen_441:2@4": {
+  "either": [
+   "switch",
+   "blitz"
+  ],
+  "src": "blitz_check B24：其實不確定是換防還是包夾 因為輛個防守者都很接近持球者   只是後來是ds負責去守handler"
+ },
+ "screen_285:10@2": {
+  "exclude": true,
+  "src": "blitz_check B18：handler過掩護之後就直接投三分 這時ds才往前撲"
+ },
+ "screen_449:6@8": {
+  "exclude": true,
+  "src": "blitz_check B25：11frame 時handler投藍 這時ds才往前撲"
+ },
+ "screen_81:4@13": {
+  "label": "switch",
+  "src": "blitz_check B10：這段有兩個掩護 第一個掩護後dh 換防 ds1去守handler, 第二個掩護後ds1和ds2上前夾擊"
+ },
+ "screen_206:9@3": {
+  "dh": 8,
+  "src": "blitz_check B15：dh 是8"
+ },
+ "screen_462:4@6": {
+  "dh": 7,
+  "ds": 8,
+  "src": "blitz_check B27：dh=7 ds=8"
+ },
+ "screen_486:10@14": {
+  "dh": 2,
+  "ds": 6,
+  "src": "blitz_check B28：dh=2 ds = 6"
+ },
+ "screen_498:7@4": {
+  "dh": 0,
+  "ds": 5,
+  "src": "blitz_check B30：dh=0 ds=5"
+ }
+}
