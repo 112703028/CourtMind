@@ -50,7 +50,7 @@ except ImportError:
     build_sam2_video_predictor = None
 
 # 必須在 sys.path 設好後才能匯入
-from nba_data_pipeline.model import ScreenNetPairwise, N_OFFENSE, N_DEFENSE, N_PLAYERS
+from nba_data_pipeline.model import ScreenNetPairwise, N_OFFENSE, N_DEFENSE, N_PLAYERS, to_handler_relative
 
 # ── 常數（與 convert_manual.py 對齊）─────────────────────────────────────────────
 SEQ_LEN = 10
@@ -652,6 +652,18 @@ def smooth_ball_acquisition(ball_acquisition, min_run=4, fill_gap=8):
 
 # ── Sliding window inference ───────────────────────────────────────────────────
 
+class ProbAverage(torch.nn.Module):
+    """多個 ScreenNet 的機率平均（不同訓練種子）。輸出轉回 logit，呼叫端照常取 sigmoid 就是平均機率。"""
+
+    def __init__(self, models):
+        super().__init__()
+        self.models = torch.nn.ModuleList(models)
+
+    def forward(self, trajectories, roles):
+        p = torch.stack([torch.sigmoid(m(trajectories, roles)) for m in self.models]).mean(0)
+        return torch.logit(p.clamp(1e-6, 1 - 1e-6))
+
+
 def positions_for(pid, court_coords, window):
     """取 pid 在 window 內 SEQ_LEN 幀的位置序列。漏幀用前一個已知值填。"""
     seq = np.zeros((SEQ_LEN, 2), dtype=np.float32)
@@ -666,11 +678,15 @@ def positions_for(pid, court_coords, window):
 
 
 def detect_screens(model, device, court_coords, player_assignment, ball_acquisition,
-                   threshold=0.70, debug=False, yolo_defender_pids=None):
+                   threshold=0.70, debug=False, yolo_defender_pids=None,
+                   score_log=None):
     """
     對每張 frame 預測掩護。回傳 list[None | dict]。
     debug=True 時，對每個 score >= threshold 的視窗印出 offense/defense 分配與所有候選人分數。
     yolo_defender_pids: set of player_id，YOLO 主要把他們認成 defender 的 id，會從 offense 候選剔除。
+    score_log: 給一個 list 就會 append 每個視窗「未經門檻」的全部候選分數
+               {start, handler_id, scores:{pid:prob}}，用來畫 ScreenNet 分數曲線
+               （診斷連續發射：輸出是平台還是尖峰）。
     """
     if yolo_defender_pids is None:
         yolo_defender_pids = set()
@@ -818,6 +834,10 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
                 best_score = prob
                 best_screener = candidate
 
+        if score_log is not None:
+            score_log.append({'start': start, 'handler_id': handler_id,
+                              'scores': dict(candidate_scores)})
+
         # 多 screener 模式：所有 score >= threshold 的 candidate 都當 screener
         # 不再只挑 best，把所有夠 confidence 的人都收下
         screener_picks = [(pid, s) for pid, s in candidate_scores.items() if s >= threshold]
@@ -858,12 +878,150 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
 
 # ── Drawing ────────────────────────────────────────────────────────────────────
 
+def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acquisition,
+                        fps, anchor=3, threshold=0.9, nms=3, dense=False,
+                        yolo_defender_pids=None):
+    """
+    事件定位版擋拆偵測（配 convert_contact.py 訓練的模型，例 finetune_contact_v2_pw5_best.pt）。
+
+    跟訓練 / eval_contact.py 同一套做法：
+      1. 原片抽成 5fps（訓練影格就是 5fps，10 張窗 = 2 秒）
+      2. 每個窗：每個進攻候選人輪流放 slot 1，其他進攻按離 handler 距離排，
+         防守取離 handler 最近的 5 個 → pair(handler, slot1) 分數記在窗口第 anchor 格
+      3. 每組 (handler, 候選人) 的分數曲線找尖峰（>= threshold、彼此間隔 >= nms 張）
+         → 每個尖峰 = 一次擋拆，只有一個時間點（撞上那一刻）
+    dense=True：從每個起始偏移都抽一次（30fps 時 6 次），曲線密 6 倍、時間更精細，但慢 6 倍。
+
+    回 (events, curves)
+      events：[{frame, handler_id, screener_id, score}]（frame = 原片幀號）
+      curves：{(handler, 候選人): {原片幀號: 分數}}
+    """
+    yolo_defender_pids = yolo_defender_pids or set()
+    n = len(court_coords)
+    step = fps / 5.0
+    roles = torch.tensor([0] + [1] * (N_OFFENSE - 1) + [2] * N_DEFENSE,
+                         dtype=torch.int64).unsqueeze(0).to(device)
+
+    # 分隊用「整支影片的多數決」（跟訓練資料 convert_contact 一致），不用 2 秒窗內的多數決：
+    # 分隊模型偶爾會短暫把防守者判成跟持球者同隊（v127 f84 的 #5/#14），
+    # 窗內多數決會讓他們被當成掩護者候選 → 假尖峰。
+    clip_team = {}
+    for fa in player_assignment:
+        for p, t in fa.items():
+            clip_team.setdefault(p, Counter())[t] += 1
+    clip_team = {p: c.most_common(1)[0][0] for p, c in clip_team.items()}
+    curves = {}
+    offsets = range(max(1, int(round(step)))) if dense else [0]
+
+    for off0 in offsets:
+        sampled = []
+        k = 0
+        while int(round(off0 + k * step)) < n:
+            sampled.append(int(round(off0 + k * step)))
+            k += 1
+        for s in range(0, len(sampled) - SEQ_LEN + 1):
+            window = sampled[s:s + SEQ_LEN]
+
+            # handler：窗內多數決
+            hv = Counter(ball_acquisition[f] for f in window
+                         if ball_acquisition[f] is not None and ball_acquisition[f] != -1)
+            if not hv:
+                continue
+            H = hv.most_common(1)[0][0]
+
+            # 窗內出現次數；隊伍用整支影片的多數決，handler 那隊 = 進攻
+            cnt = Counter()
+            for f in window:
+                cnt.update(court_coords[f].keys())
+            if H not in clip_team or cnt.get(H, 0) == 0:
+                continue
+            h_team = clip_team[H]
+            present = {p for p, c in cnt.items() if c >= SEQ_LEN // 2} | {H}
+            off_p, def_p = [H], []
+            for p in present - {H}:
+                if p not in clip_team:
+                    continue
+                if clip_team[p] == h_team and p not in yolo_defender_pids:
+                    off_p.append(p)
+                else:
+                    def_p.append(p)
+            if len(off_p) < 2:
+                continue
+
+            hpos = next((court_coords[f][H] for f in reversed(window) if H in court_coords[f]), None)
+
+            def dist_to_h(p):
+                pos = next((court_coords[f][p] for f in reversed(window) if p in court_coords[f]), None)
+                if hpos is None:
+                    return 0.0
+                return float('inf') if pos is None else float(np.hypot(pos[0] - hpos[0], pos[1] - hpos[1]))
+
+            order_def = (sorted(def_p, key=dist_to_h) + [None] * N_DEFENSE)[:N_DEFENSE]
+            def_pos = np.zeros((N_DEFENSE, SEQ_LEN, 2), dtype=np.float32)
+            for i, p in enumerate(order_def):
+                if p is not None:
+                    def_pos[i] = positions_for(p, court_coords, window)
+            # 防守者幾乎沒有座標（homography 失敗）的窗跳過（訓練資料也濾掉了）
+            if int((np.abs(def_pos).sum(axis=(1, 2)) > 0).sum()) < 2:
+                continue
+
+            cache = {p: positions_for(p, court_coords, window) for p in off_p}
+            cands = [p for p in off_p if p != H]
+            batch = np.zeros((len(cands), N_PLAYERS, SEQ_LEN, 2), dtype=np.float32)
+            for b, cand in enumerate(cands):
+                rest = sorted((p for p in off_p if p not in (H, cand)), key=dist_to_h)
+                order_off = ([H, cand] + rest + [None] * N_OFFENSE)[:N_OFFENSE]
+                for i, p in enumerate(order_off):
+                    if p is not None:
+                        batch[b, i] = cache[p]
+                batch[b, N_OFFENSE:] = def_pos
+            if getattr(model, 'rel_coords', False):       # finetune --rel_coords 訓練的模型
+                batch = to_handler_relative(batch)
+            with torch.no_grad():
+                logits = model(torch.from_numpy(batch).to(device), roles.expand(len(cands), -1))
+            probs = torch.sigmoid(logits)[:, 0].cpu().numpy()     # pair(0,1) = 第 0 號
+            af = window[anchor]
+            for cand, pr in zip(cands, probs):
+                cv = curves.setdefault((H, cand), {})
+                cv[af] = max(cv.get(af, 0.0), float(pr))
+
+    # 找尖峰：>= threshold 的局部最大，同一組 (handler, 候選人) 彼此間隔 >= nms 張（換算原片幀）
+    min_gap = nms * step
+    events = []
+    for (H, cand), cv in curves.items():
+        pts = sorted(cv.items())
+        cands = []
+        for i, (f, sc) in enumerate(pts):
+            if sc < threshold:
+                continue
+            left = pts[i - 1][1] if i > 0 else -1.0
+            right = pts[i + 1][1] if i < len(pts) - 1 else -1.0
+            if sc >= left and sc >= right:
+                cands.append((sc, f))
+        kept = []
+        for sc, f in sorted(cands, reverse=True):
+            if all(abs(f - g) >= min_gap for _, g in kept):
+                kept.append((sc, f))
+        for sc, f in kept:
+            events.append({'frame': int(f), 'handler_id': H, 'screener_id': cand, 'score': sc})
+    events.sort(key=lambda e: e['frame'])
+    return events, curves
+
+
 def draw_predictions(frames, player_tracks, per_frame_screens):
     out = []
+    n_total = len(frames)
     for f_idx, frame in enumerate(frames):
         img = frame.copy()
         tracks = player_tracks[f_idx]
         ev = per_frame_screens[f_idx]
+
+        # 左上角幀號（標 GT 用，直接對 pkl 幀，不用換算秒數）：黑底白字好讀
+        label = f"frame {f_idx}/{n_total - 1}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        cv2.rectangle(img, (6, 6), (6 + tw + 8, 6 + th + 12), (0, 0, 0), -1)
+        cv2.putText(img, label, (10, 6 + th + 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         handler_id = ev['handler_id'] if ev is not None else None
         # 支援多 screener：optional 'screener_ids' list（v2），fallback 到 'screener_id'（v1）
@@ -959,10 +1117,24 @@ def get_video_fps(video_path, fallback=30.0):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--video', required=True)
-    parser.add_argument('--ckpt', required=True,
-                        help='Path to finetune_manual_best.pt')
+    parser.add_argument('--ckpt', required=True, nargs='+',
+                        help='ScreenNet ckpt；給多個（例如 3 個種子的最終模型）→ 機率平均（交叉驗證 F1 +0.04~0.08）')
     parser.add_argument('--output_video', default='output_videos/screens_pred.avi')
-    parser.add_argument('--threshold', type=float, default=0.70)
+    parser.add_argument('--threshold', type=float, default=0.70,
+                        help='interval 模式（舊模型）的門檻')
+    parser.add_argument('--screen_mode', choices=['auto', 'peak', 'interval'], default='auto',
+                        help='peak = 事件定位（每次擋拆一個時間點，配 convert_contact 訓練的模型）；'
+                             'interval = 舊做法（超過門檻的幀合併成區間）；'
+                             'auto = checkpoint 有記錄 anchor 就用 peak')
+    parser.add_argument('--peak_threshold', type=float, default=0.6,
+                        help='peak 模式：尖峰至少要多少分。2026-10-23 最終模型（座標清理 + 459 支、3 模型平均）交叉驗證：'
+                             '0.6 → 準確率 77%、抓到率 70%、F1 0.732；0.8 → 81% / 61% / 0.693（只準 4%、少抓 9%）')
+    parser.add_argument('--peak_nms', type=int, default=15,
+                        help='peak 模式：同一組人兩次擋拆至少隔幾張 5fps 影格（15 = 3 秒）。'
+                             '5 份交叉驗證（158 個掩護，門檻 0.6）：1 秒 F1 0.54（抓錯 119，37 個是同一次掩護發兩次）'
+                             '→ 3 秒 F1 0.60（抓錯 69），抓對只少 6 個')
+    parser.add_argument('--peak_dense', action='store_true',
+                        help='peak 模式：每個起始偏移都抽一次，曲線更密、時間更精細（慢 fps/5 倍）')
     parser.add_argument('--stub_dir', default='stubs')
     parser.add_argument('--no_stub', action='store_true',
                         help='Disable stub caching (recompute everything)')
@@ -1199,51 +1371,102 @@ def main():
     n_with_coords = sum(1 for fc in court_coords if fc)
     print(f"  {n_with_coords}/{len(frames)} frames have homography")
 
-    # 修正 court keypoint / homography 的左右鏡像閃爍（球場對稱 → 某些幀被投成鏡像，
-    # 座標每隔幾幀翻一次會讓下游戰術分析全錯）。從源頭修好，dump 的 pkl 就是乾淨的。
-    from tactics_tools import deflicker_court_coords
-    court_coords, n_flip = deflicker_court_coords(court_coords)
-    print(f"  de-flicker: 修正 {n_flip}/{len(frames)} 幀 homography 鏡像")
+    # 座標清理（跟訓練 / 交叉驗證同一套 clean_court_tracks）：左右鏡像閃爍（球場對稱 → 某些幀
+    # 被投成鏡像）、整張 homography 暫時算壞、單人腳點尖刺。從源頭修好，dump 的 pkl 就是乾淨的。
+    # 這裡是原始 fps：「壞影格最多連續幾張」照訓練的 5fps 3 張（0.6 秒）換算
+    from tactics_tools import clean_court_tracks
+    court_coords, cst = clean_court_tracks(court_coords, max_run=max(3, int(round(3 * fps / 5))))
+    print(f"  座標清理：鏡像 {cst['flip']}、壞影格 {cst['bad_frames']}、單人尖刺 {cst['spikes']}"
+          f"（共 {len(frames)} 幀）")
 
     # ── Model ──────────────────────────────────────────────────────────────
-    print(f"Loading model: {args.ckpt}")
-    ckpt = torch.load(args.ckpt, map_location='cpu')
-    d_model = ckpt.get('d_model', 64)
-    n_heads = ckpt.get('n_heads', 4)
-    n_layers = ckpt.get('n_layers', 2)
-    model = ScreenNetPairwise(d_model, n_heads, n_layers)
-    model.load_state_dict(ckpt['model'])  # 載入完整權重（含 head）
-    model = model.to(device).eval()
-    print(f"  d_model={d_model}, n_heads={n_heads}, n_layers={n_layers}")
+    models, ckpts = [], []
+    for path in args.ckpt:
+        print(f"Loading model: {path}")
+        ck = torch.load(path, map_location='cpu')
+        d_model, n_heads, n_layers = ck.get('d_model', 64), ck.get('n_heads', 4), ck.get('n_layers', 2)
+        m = ScreenNetPairwise(d_model, n_heads, n_layers)
+        m.load_state_dict(ck['model'])  # 載入完整權重（含 head）
+        m = m.to(device).eval()
+        m.rel_coords = bool((ck.get('data_meta') or {}).get('rel_coords'))
+        print(f"  d_model={d_model}, n_heads={n_heads}, n_layers={n_layers}"
+              + ("，以持球者為原點的相對座標" if m.rel_coords else ""))
+        models.append(m); ckpts.append(ck)
+    ckpt = ckpts[0]
+    metas = [{k: v for k, v in (c.get('data_meta') or {}).items() if k in ('anchor', 'rel_coords')} for c in ckpts]
+    if any(mt != metas[0] for mt in metas):
+        raise SystemExit(f"--ckpt 的模型輸入設定不一致（anchor / rel_coords）：{metas}")
+    model = models[0] if len(models) == 1 else ProbAverage(models)
+    model.rel_coords = models[0].rel_coords
+    if len(models) > 1:
+        print(f"  {len(models)} 個模型機率平均")
 
     # ── Inference ──────────────────────────────────────────────────────────
-    print(f"Sliding-window inference (threshold={args.threshold})...")
-    per_frame = detect_screens(
-        model, device, court_coords, player_assignment, ball_acquisition,
-        threshold=args.threshold, debug=args.debug,
-        yolo_defender_pids=yolo_defender_pids,
-    )
+    meta = ckpt.get('data_meta') or {}
+    screen_mode = args.screen_mode
+    if screen_mode == 'auto':
+        screen_mode = 'peak' if 'anchor' in meta else 'interval'
+    window_scores, peak_curves = [], {}
 
-    n_screen_frames = sum(1 for e in per_frame if e is not None)
-    print(f"  → {n_screen_frames}/{len(frames)} frames flagged as screen")
+    if screen_mode == 'peak':
+        # 事件定位：每次擋拆只有一個時間點（撞上那一刻）
+        anchor = int(meta.get('anchor', 3))
+        print(f"Screen detection: peak 模式（5fps、anchor 第 {anchor} 格、"
+              f"門檻 {args.peak_threshold}、間隔 ≥{args.peak_nms} 張）...")
+        peaks, curves = detect_screen_peaks(
+            model, device, court_coords, player_assignment, ball_acquisition, fps,
+            anchor=anchor, threshold=args.peak_threshold, nms=args.peak_nms,
+            dense=args.peak_dense, yolo_defender_pids=yolo_defender_pids,
+        )
+        peak_curves = {f"{h}-{c}": sorted(cv.items()) for (h, c), cv in curves.items()}
+        # start/end = 撞上那一刻前後各 0.3 秒：下游 tactics_tools 用 start/end 找接觸、畫框用；
+        # 事件本身的時間點是 peak_frame
+        half = int(round(0.3 * fps))
+        events = []
+        per_frame = [None] * len(frames)
+        for pk in peaks:
+            f, H, S, sc = pk['frame'], pk['handler_id'], pk['screener_id'], pk['score']
+            ev = {'start': max(0, f - half), 'end': min(len(frames) - 1, f + half),
+                  'peak_frame': f, 'handler_id': H, 'screener_id': S, 'score': sc}
+            events.append(ev)
+            for i in range(ev['start'], ev['end'] + 1):
+                cur = per_frame[i]
+                if cur is None:
+                    per_frame[i] = {'handler_id': H, 'screener_ids': [S], 'scores': [sc],
+                                    'max_score': sc, 'screener_id': S, 'score': sc}
+                elif S not in cur['screener_ids']:
+                    cur['screener_ids'].append(S)
+                    cur['scores'].append(sc)
+        print(f"  → {len(events)} 次擋拆（每次一個時間點）")
+    else:
+        print(f"Sliding-window inference (threshold={args.threshold})...")
+        per_frame = detect_screens(
+            model, device, court_coords, player_assignment, ball_acquisition,
+            threshold=args.threshold, debug=args.debug,
+            yolo_defender_pids=yolo_defender_pids,
+            score_log=window_scores,
+        )
 
-    # 印出事件段
-    events = []
-    cur = None
-    for i, e in enumerate(per_frame):
-        if e is not None:
-            if cur is None or cur['end'] + 1 != i or cur['screener_id'] != e['screener_id']:
-                if cur is not None:
-                    events.append(cur)
-                cur = {'start': i, 'end': i,
-                       'handler_id': e['handler_id'],
-                       'screener_id': e['screener_id'],
-                       'score': e['score']}
-            else:
-                cur['end'] = i
-                cur['score'] = max(cur['score'], e['score'])
-    if cur is not None:
-        events.append(cur)
+        n_screen_frames = sum(1 for e in per_frame if e is not None)
+        print(f"  → {n_screen_frames}/{len(frames)} frames flagged as screen")
+
+        # 印出事件段
+        events = []
+        cur = None
+        for i, e in enumerate(per_frame):
+            if e is not None:
+                if cur is None or cur['end'] + 1 != i or cur['screener_id'] != e['screener_id']:
+                    if cur is not None:
+                        events.append(cur)
+                    cur = {'start': i, 'end': i,
+                           'handler_id': e['handler_id'],
+                           'screener_id': e['screener_id'],
+                           'score': e['score']}
+                else:
+                    cur['end'] = i
+                    cur['score'] = max(cur['score'], e['score'])
+        if cur is not None:
+            events.append(cur)
 
     # 注意：擋拆接觸幀(screen_frame)、roll/pop、coverage 都是「分析」，
     # 一律在 tactics_tools / describe_screens 讀 pkl 時算，inference 不碰
@@ -1255,13 +1478,15 @@ def main():
 
     print(f"\nDetected {len(events)} screen events:")
     for ev in events:
-        print(f"  {_fmt(ev['start'])} - {_fmt(ev['end'])}  "
-              f"handler={ev['handler_id']}, screener={ev['screener_id']}, "
+        when = (f"撞上 {_fmt(ev['peak_frame'])}" if 'peak_frame' in ev
+                else f"{_fmt(ev['start'])} - {_fmt(ev['end'])}")
+        print(f"  {when}  handler={ev['handler_id']}, screener={ev['screener_id']}, "
               f"score={ev['score']:.3f}")
 
     # ── Dump 事件 + 座標，給 tactics_tools.py 判斷戰術（解耦感知與分析）──────────
     import pickle
     dump_path = os.path.splitext(args.output_video)[0] + '_events.pkl'
+    os.makedirs(os.path.dirname(dump_path) or '.', exist_ok=True)
     with open(dump_path, 'wb') as f:
         pickle.dump({
             'events': events,
@@ -1269,6 +1494,15 @@ def main():
             'player_assignment': player_assignment,  # list[dict[pid:team]]，team1=進攻
             'court_dims': (COURT_W_FT, COURT_H_FT),  # (91.8, 49.2)
             'fps': fps,                              # 換算秒數用
+            # 每個視窗未經門檻的全部候選分數（畫 ScreenNet 分數曲線用）
+            'window_scores': window_scores,          # list[{start, handler_id, scores:{pid:prob}}]（interval 模式）
+            'seq_len': SEQ_LEN,
+            # peak 模式：每組 "handler-候選人" 的分數曲線 [(原片幀號, 分數)]；events 帶 peak_frame
+            'screen_mode': screen_mode,
+            'peak_curves': peak_curves,
+            # 每幀持球者（重算 ScreenNet 分數 / 之後重訓驗證會用到）
+            'ball_acquisition': ball_acquisition,
+            'yolo_defender_pids': sorted(yolo_defender_pids) if yolo_defender_pids else [],
         }, f)
     print(f"  事件資料 dump → {dump_path}")
 
@@ -1278,8 +1512,8 @@ def main():
 
     out_path = args.output_video
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
-    print(f"Saving → {out_path}")
-    save_video(output_frames, out_path)
+    print(f"Saving → {out_path} @ {fps:.2f} fps")
+    save_video(output_frames, out_path, fps=fps)   # 用偵測到的 fps，別吃 save_video 預設 24
     print("Done.")
 
 

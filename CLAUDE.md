@@ -248,6 +248,20 @@ SAM3 單獨在 sam3_env 跑、dump player_tracks（同 SAM2 格式 `list[dict[pi
 
 ---
 
+## 2026-10 實驗（擋拆接觸偵測 + 防守應對）
+
+詳細數字與做法：`docs/experiments/2026-10-23-screen-coverage-experiments.md`
+
+**擋拆接觸偵測（ScreenNet，事件 F1 ±0.4 秒，3 模型平均）**：
+- ⭐ **訓練快取的球場座標從來沒去閃爍**（相鄰兩張 > 8ft 跳動 27.5%）→ 新增 `tactics_tools.clean_court_tracks()`（鏡像 + 壞影格 + 單人尖刺）→ 5.5%。訓練 / 交叉驗證 / inference.py 共用。0.616 → 0.669
+- 加最後一批標記（459 支片段）→ **0.732**（基準 tag `contact_cleanall`，資料 `output_contact_clean_503`）
+- ❌ 無效：σ 放寬 / 自適應修正撞上時間（3 模型平均已抵消）、直接裁框的姿態（撞上時骨架拼錯）、反事實 ghost 模型（座標雜訊淹沒）、第二階段檢查器（+0.007，ScreenNet 已學到三人關係）
+- SAM3 遮罩（`--save_masks`）品質很好，遮罩版姿態不再拼錯；但對擋拆偵測和防守應對的幫助都很小
+
+**防守應對**：新片段補了大量標記（換防 15 → 119 筆）→ 換防大幅進步。包夾在五種方法都 ~30%，人工看完證實**大多是標記錯**（修正檔 `nba_data_pipeline/coverage_label_fixes.json`）→ 修正後**隨機森林 + 文字 LLM 混合三類平均 75%**（包夾 66%），這是建議的正式做法。姿態面向 / 畫面（VLM）/ 讓 LLM 自己查面向：效果都在 LLM 隨機變動範圍內（同設定重跑就有 17/154 題答案不同），暫不採用。
+
+---
+
 ## 下一步
 
 ### 短期
@@ -388,16 +402,31 @@ unset SSL_CERT_FILE
 
 ## 常用指令
 
-### 跑 inference（最新版）
+### 跑 inference（最新版，2026-10-23）
 
 ```bash
+# 先在 GPU 上跑 SAM3（預設只追 5fps 再內插回原片；原片 fps 追蹤會把重疊的掩護者/防守者併成一人）：
+#   python nba_data_pipeline/run_sam3_tracks.py --video input_videos/screen/screen_123.mp4 \
+#       --out stubs/screen_123_sam3_tracks.pkl --single_gpu
+# --ckpt 給 3 個種子的最終模型 → 機率平均；peak 門檻預設 0.6；座標自動 clean_court_tracks
+# 每支影片用自己的 --stub_dir（stub 檔名固定，共用會讀到別支的舊結果）
 python nba_data_pipeline/inference.py \
-    --video         input_videos/screen/screen_13.mp4 \
-    --ckpt          nba_data_pipeline/checkpoints/finetune_manual_best.pt \
-    --handler_model models/handler_detector.pt \
-    --output_video  output_videos/screens_pred.avi \
-    --threshold     0.70 \
-    --debug
+    --video        input_videos/screen/screen_123.mp4 \
+    --sam3_tracks  stubs/screen_123_sam3_tracks.pkl \
+    --ckpt nba_data_pipeline/checkpoints/finetune_contact_final_s1_best.pt \
+           nba_data_pipeline/checkpoints/finetune_contact_final_s2_best.pt \
+           nba_data_pipeline/checkpoints/finetune_contact_final_s3_best.pt \
+    --output_video output_videos/e2e/screen_123.mp4 \
+    --stub_dir     stubs/e2e_123
+# 戰術分析（防守應對 = models/coverage_rf.pkl 隨機森林 + LLM 混合）
+python nba_data_pipeline/tactics_tools.py output_videos/e2e/screen_123_events.pkl
+```
+
+### 重訓防守應對模型
+
+```bash
+# 舊標記 + 新片段表格「防守方式」+ coverage_label_fixes.json → models/coverage_rf.pkl（含 LLM 範例池）
+python nba_data_pipeline/coverage_model.py
 ```
 
 ### 重跑訓練資料生成
