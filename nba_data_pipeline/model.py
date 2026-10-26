@@ -55,14 +55,15 @@ class MiniScreenNet(nn.Module):
          對應論文：multi-head self-attention, N layers
     """
 
-    def __init__(self, d_model=128, n_heads=4, n_layers=4, dropout=0.1):
+    def __init__(self, d_model=128, n_heads=4, n_layers=4, dropout=0.1, in_dim=2):
         super().__init__()
         self.d_model = d_model
+        self.in_dim = in_dim
 
         # 共享一個 LSTM（論文對同角色共享權重）
         # 所有10名球員用同一個 LSTM，靠 role_emb 區分身份
         self.lstm = nn.LSTM(
-            input_size=2,           # (x, y) 座標
+            input_size=in_dim,      # (x, y) 座標；in_dim > 2 時後面接姿態 / 遮罩特徵（pose_features.py）
             hidden_size=d_model,
             num_layers=1,
             batch_first=True,
@@ -317,22 +318,28 @@ class ScreenNetClassifier(nn.Module):
 class ScreenNetPairwise(nn.Module):
     """Base + PairwiseScreenHead，偵測所有進攻球員配對的掩護關係。"""
 
-    def __init__(self, d_model=128, n_heads=4, n_layers=4):
+    def __init__(self, d_model=128, n_heads=4, n_layers=4, in_dim=2):
         super().__init__()
-        self.base = MiniScreenNet(d_model, n_heads, n_layers)
+        self.base = MiniScreenNet(d_model, n_heads, n_layers, in_dim=in_dim)
         self.head = PairwiseScreenHead(d_model)
 
     def forward(self, trajectories, roles):
         return self.head(self.base(trajectories, roles))   # (B, 20)
 
     @classmethod
-    def from_pretrained(cls, ckpt_path, d_model=128, n_heads=4, n_layers=4):
-        obj = cls(d_model, n_heads, n_layers)
+    def from_pretrained(cls, ckpt_path, d_model=128, n_heads=4, n_layers=4, in_dim=2):
+        """in_dim > 預訓練的輸入維度（2 = x, y）時：LSTM 讀輸入的權重前 2 欄照搬、多出來的欄位補 0
+        → 訓練一開始行為跟只看位置一樣，再慢慢學會用新特徵（姿態 / 遮罩）。"""
+        obj = cls(d_model, n_heads, n_layers, in_dim=in_dim)
         ckpt = torch.load(ckpt_path, map_location='cpu')
         pretrain_state = {
             k.replace('base.', ''): v
             for k, v in ckpt['model'].items()
             if k.startswith('base.')
         }
+        w = pretrain_state.get('lstm.weight_ih_l0')
+        if w is not None and w.shape[1] < in_dim:
+            pad = torch.zeros(w.shape[0], in_dim - w.shape[1], dtype=w.dtype)
+            pretrain_state['lstm.weight_ih_l0'] = torch.cat([w, pad], dim=1)
         obj.base.load_state_dict(pretrain_state)
         return obj

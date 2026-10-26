@@ -374,14 +374,22 @@ def run_fixteam(args):
 
 # ── build：快取 → 滑窗 + 軟標籤 ────────────────────────────────────────────────
 
-def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=False):
+def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=False, pose=False, poss=None):
     """anchor：標籤記在窗口第幾格（0~9）。3 = 接觸前看 3 張（0.6 秒）、接觸後看 6 張（1.2 秒）。
     推論時要用同一個 anchor 把窗口分數對回影格。
-    clean：先用 tactics_tools.clean_court_tracks 清座標（鏡像閃爍 / 壞影格 / 單人尖刺）。"""
+    clean：先用 tactics_tools.clean_court_tracks 清座標（鏡像閃爍 / 壞影格 / 單人尖刺）；
+           clean=2 再加「個人短缺口（≤6 張 = 1.2 秒）前後內插」。
+    pose：每人每張在 x, y 後面接 6 個姿態 / 遮罩通道（pose_features.channels）→ traj (10, 10, 8)。
+    poss：逐張持球者（possession.holders，快取 pid）。窗內拿球最多的進攻球員 ≠ handler_tid 時，
+          多產生一組「以他為持球者」的排法（原本的排法保留；候選人不含原 handler，候選範圍不變）。"""
     n, ct, raw, team = c['n'], c['court_tracks'], c['raw_tracks'], c['track_team']
     if clean:
         from tactics_tools import clean_court_tracks
-        ct = clean_court_tracks(ct)[0]
+        ct = clean_court_tracks(ct, fill_gaps=6 if clean == 2 else 0)[0]
+    pf = None
+    if pose:
+        import pose_features
+        pf = pose_features.load_clip(c)
     H, S_all, D = c['handler_tid'], c['screener_tids'], c['defender_tid']
     ev = [e for e in c['events'] if e['tid'] is not None]
     out = []
@@ -406,54 +414,65 @@ def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=F
             s = sigma if e['contact'] else sigma_nc
             tgt[e['tid']] = max(tgt[e['tid']], math.exp(-((center - e['idx']) ** 2) / (2 * s * s)))
 
-        # 排序跟 inference.detect_screens 一致：以窗內最後一個有 handler 座標的幀為準，
-        # 防守取離 handler 最近的 5 個（替補/短暫假軌跡通常離得遠 → 自然被擠出去），
-        # 其他進攻也按離 handler 的距離排。
-        hpos = next((wc[k][H] for k in range(SEQ_LEN - 1, -1, -1) if H in wc[k]), None)
+        handlers = [H]
+        if poss is not None:
+            import possession
+            hw = possession.window_handler(poss, start, SEQ_LEN, team, H)
+            if hw is not None and hw in off:
+                handlers.append(hw)
+        for Hh in handlers:
+            # 排序跟 inference.detect_screens 一致：以窗內最後一個有 handler 座標的幀為準，
+            # 防守取離 handler 最近的 5 個（替補/短暫假軌跡通常離得遠 → 自然被擠出去），
+            # 其他進攻也按離 handler 的距離排。
+            hpos = next((wc[k][Hh] for k in range(SEQ_LEN - 1, -1, -1) if Hh in wc[k]), None)
 
-        def dist_to_h(p):
-            if hpos is None:
-                return 0.0
-            pos = next((wc[k][p] for k in range(SEQ_LEN - 1, -1, -1) if p in wc[k]), None)
-            return float('inf') if pos is None else math.dist(pos, hpos)
+            def dist_to_h(p):
+                if hpos is None:
+                    return 0.0
+                pos = next((wc[k][p] for k in range(SEQ_LEN - 1, -1, -1) if p in wc[k]), None)
+                return float('inf') if pos is None else math.dist(pos, hpos)
 
-        order_def = (sorted(dfn, key=dist_to_h) + [None] * N_DEF)[:N_DEF]
-        if rotate:
-            # 跟推論一樣：每個進攻候選人輪流放 slot 1，其他進攻按離 handler 的距離排。
-            # 標籤是「這個人此刻」的目標 → 模型會看到「掩護者在 slot 1 但不是接觸時刻 = 低分」
-            # 以及「掩護發生時 slot 1 放的是旁人 = 低分」，跟推論時的輪流方式一致。
-            layouts = []
-            for cand in (p for p in off if p != H):
-                rest = sorted((p for p in off if p not in (H, cand)), key=dist_to_h)
-                layouts.append(([H, cand] + rest + [None] * N_OFF)[:N_OFF])
-        else:
-            # 舊做法：有目標的 screener 優先放前面
-            scr_w = sorted((p for p in off if tgt.get(p, 0) >= min_target), key=lambda p: -tgt[p])
-            others = sorted((p for p in off if p != H and p not in scr_w), key=dist_to_h)
-            layouts = [([H] + scr_w + others + [None] * N_OFF)[:N_OFF]]
+            order_def = (sorted(dfn, key=dist_to_h) + [None] * N_DEF)[:N_DEF]
+            if rotate:
+                # 跟推論一樣：每個進攻候選人輪流放 slot 1，其他進攻按離 handler 的距離排。
+                # 標籤是「這個人此刻」的目標 → 模型會看到「掩護者在 slot 1 但不是接觸時刻 = 低分」
+                # 以及「掩護發生時 slot 1 放的是旁人 = 低分」，跟推論時的輪流方式一致。
+                layouts = []
+                for cand in (p for p in off if p not in (Hh, H)):
+                    rest = sorted((p for p in off if p not in (Hh, cand)), key=dist_to_h)
+                    layouts.append(([Hh, cand] + rest + [None] * N_OFF)[:N_OFF])
+            else:
+                # 舊做法：有目標的 screener 優先放前面
+                scr_w = sorted((p for p in off if tgt.get(p, 0) >= min_target), key=lambda p: -tgt[p])
+                others = sorted((p for p in off if p != Hh and p not in scr_w), key=dist_to_h)
+                layouts = [([Hh] + scr_w + others + [None] * N_OFF)[:N_OFF]]
 
-        for order_off in layouts:
-            order = order_off + order_def
-            traj = np.zeros((N_PLAYERS, SEQ_LEN, 2), dtype=np.float32)
-            last = [None] * N_PLAYERS
-            for k in range(SEQ_LEN):
-                for pi, p in enumerate(order):
-                    if p is not None and p in wc[k]:
-                        traj[pi, k] = wc[k][p]
-                        last[pi] = wc[k][p]
-                    elif last[pi] is not None:
-                        traj[pi, k] = last[pi]
+            for order_off in layouts:
+                order = order_off + order_def
+                traj = np.zeros((N_PLAYERS, SEQ_LEN, 2), dtype=np.float32)
+                last = [None] * N_PLAYERS
+                for k in range(SEQ_LEN):
+                    for pi, p in enumerate(order):
+                        if p is not None and p in wc[k]:
+                            traj[pi, k] = wc[k][p]
+                            last[pi] = wc[k][p]
+                        elif last[pi] is not None:
+                            traj[pi, k] = last[pi]
 
-            # 防守者幾乎沒有座標（該段 homography 失敗）的窗不要：模型會學到「沒防守者也能判掩護」
-            if int((np.abs(traj[N_OFF:]).sum(axis=(1, 2)) > 0).sum()) < 2:
-                continue
+                # 防守者幾乎沒有座標（該段 homography 失敗）的窗不要：模型會學到「沒防守者也能判掩護」
+                if int((np.abs(traj[N_OFF:]).sum(axis=(1, 2)) > 0).sum()) < 2:
+                    continue
 
-            pw = np.zeros(20, dtype=np.float32)
-            for slot in range(1, N_OFF):
-                p = order_off[slot]
-                if p is not None and tgt.get(p, 0) >= min_target:
-                    pw[pair_index(0, slot)] = tgt[p]
-            out.append((traj, pw, center))
+                pw = np.zeros(20, dtype=np.float32)
+                for slot in range(1, N_OFF):
+                    p = order_off[slot]
+                    if p is not None and tgt.get(p, 0) >= min_target:
+                        pw[pair_index(0, slot)] = tgt[p]
+                if pf is not None:
+                    import pose_features
+                    ch = pose_features.channels(pf, range(start, start + SEQ_LEN), order, Hh, order_off[1])
+                    traj = np.concatenate([traj, ch], axis=-1)
+                out.append((traj, pw, center))
     return out
 
 

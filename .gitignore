@@ -29,3 +29,13 @@ team_classifier_data/
 # 密鑰（絕對不能進 git）
 .env
 .env.local
+
+# 實驗產生的資料（可重新生成，很大）
+stubs/
+nba_data_pipeline/output_contact*/
+nba_data_pipeline/output_ghost/
+nba_data_pipeline/output_pretrain5/
+nba_data_pipeline/refined_contacts.json
+/pose_*.json
+/pose_kpts2.json.gz
+/pose_files.txt

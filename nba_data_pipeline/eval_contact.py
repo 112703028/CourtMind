@@ -36,11 +36,16 @@ ROLES = torch.tensor([0] + [1] * (N_OFF - 1) + [2] * N_DEF).unsqueeze(0)
 
 def load_model(path):
     ck = torch.load(path, map_location='cpu', weights_only=False)
-    m = ScreenNetPairwise(ck.get('d_model', 64), ck.get('n_heads', 4), ck.get('n_layers', 2))
+    in_dim = ck.get('in_dim', 2)
+    m = ScreenNetPairwise(ck.get('d_model', 64), ck.get('n_heads', 4), ck.get('n_layers', 2),
+                          **({'in_dim': in_dim} if in_dim != 2 else {}))
     m.load_state_dict(ck['model'])
     m.eval()
     m.rel_coords = bool((ck.get('data_meta') or {}).get('rel_coords'))   # finetune --rel_coords 訓練的
-    m.clean_coords = bool((ck.get('data_meta') or {}).get('clean_coords'))   # 訓練資料有清座標 → 評估也清
+    m.clean_coords = int(round((ck.get('data_meta') or {}).get('clean_coords') or 0))   # 訓練資料清座標的版本 → 評估同一版（2 = 再加短缺口內插）
+    m.pose_feats = in_dim > 2                                            # 訓練資料有姿態通道 → 評估也算
+    m.poss_handler = bool((ck.get('data_meta') or {}).get('poss_handler'))
+    m.court_v2 = bool((ck.get('data_meta') or {}).get('court_v2'))         # 球場座標第 2 版（court_v2.py）→ 評估同一版   # 逐窗持球者（possession.py）→ 評估也多一組排法
     return m, ck
 
 
@@ -62,11 +67,22 @@ def window_traj(wc, order):
 def score_curves(model, c, anchor):
     """→ {候選人 tid: {anchor 影格: 分數}}（每個進攻候選人輪流當 slot 1）。"""
     n, ct, raw, team, H = c['n'], c['court_tracks'], c['raw_tracks'], c['track_team'], c['handler_tid']
-    if getattr(model, 'clean_coords', False):
+    if getattr(model, 'court_v2', False):
+        import court_v2
+        ct = court_v2.court_tracks(c)
+    if getattr(model, 'clean_coords', 0):
         from tactics_tools import clean_court_tracks
-        ct = clean_court_tracks(ct)[0]
+        ct = clean_court_tracks(ct, fill_gaps=6 if model.clean_coords == 2 else 0)[0]
+    pf = None
+    if getattr(model, 'pose_feats', False):
+        import pose_features
+        pf = pose_features.load_clip(c)
     curves = collections.defaultdict(dict)
     pidx = pair_index(0, 1)
+    poss = None
+    if getattr(model, 'poss_handler', False):
+        import possession
+        poss = possession.holders(c)
     for start in range(c['valid_start_idx'], n - SEQ_LEN + 1):
         wr, wc = raw[start:start + SEQ_LEN], ct[start:start + SEQ_LEN]
         cnt = collections.Counter(p for fd in wr for p in fd)
@@ -77,28 +93,42 @@ def score_curves(model, c, anchor):
         dfn = [p for p in present if team.get(p) == 'defense']
         if H is None or H not in off or len(off) < 2:
             continue
-        hpos = next((wc[k][H] for k in range(SEQ_LEN - 1, -1, -1) if H in wc[k]), None)
+        handlers = [H]
+        if poss is not None:
+            hw = possession.window_handler(poss, start, SEQ_LEN, team, H)
+            if hw is not None and hw in off:
+                handlers.append(hw)
+        for Hh in handlers:
+            hpos = next((wc[k][Hh] for k in range(SEQ_LEN - 1, -1, -1) if Hh in wc[k]), None)
 
-        def dist_to_h(p):
-            if hpos is None:
-                return 0.0
-            pos = next((wc[k][p] for k in range(SEQ_LEN - 1, -1, -1) if p in wc[k]), None)
-            return float('inf') if pos is None else math.dist(pos, hpos)
+            def dist_to_h(p):
+                if hpos is None:
+                    return 0.0
+                pos = next((wc[k][p] for k in range(SEQ_LEN - 1, -1, -1) if p in wc[k]), None)
+                return float('inf') if pos is None else math.dist(pos, hpos)
 
-        order_def = (sorted(dfn, key=dist_to_h) + [None] * N_DEF)[:N_DEF]
-        cands = [p for p in off if p != H]
-        batch = []
-        for cand in cands:
-            others = sorted((p for p in off if p not in (H, cand)), key=dist_to_h)
-            order_off = ([H, cand] + others + [None] * N_OFF)[:N_OFF]
-            batch.append(window_traj(wc, order_off + order_def))
-        traj = np.stack(batch)
-        if getattr(model, 'rel_coords', False):
-            traj = to_handler_relative(traj)
-        traj = torch.from_numpy(traj)
-        prob = torch.sigmoid(model(traj, ROLES.expand(len(batch), -1)))[:, pidx].numpy()
-        for cand, pr in zip(cands, prob):
-            curves[cand][start + anchor] = float(pr)
+            order_def = (sorted(dfn, key=dist_to_h) + [None] * N_DEF)[:N_DEF]
+            cands = [p for p in off if p not in (Hh, H)]
+            if not cands:
+                continue
+            batch = []
+            for cand in cands:
+                others = sorted((p for p in off if p not in (Hh, cand)), key=dist_to_h)
+                order_off = ([Hh, cand] + others + [None] * N_OFF)[:N_OFF]
+                tr = window_traj(wc, order_off + order_def)
+                if pf is not None:
+                    import pose_features
+                    tr = np.concatenate([tr, pose_features.channels(pf, range(start, start + SEQ_LEN),
+                                                                    order_off + order_def, Hh, cand)], axis=-1)
+                batch.append(tr)
+            traj = np.stack(batch)
+            if getattr(model, 'rel_coords', False):
+                traj = to_handler_relative(traj)
+            traj = torch.from_numpy(traj)
+            prob = torch.sigmoid(model(traj, ROLES.expand(len(batch), -1)))[:, pidx].numpy()
+            for cand, pr in zip(cands, prob):
+                f = start + anchor
+                curves[cand][f] = max(curves[cand].get(f, 0.0), float(pr))   # 兩種持球者假設取最高分
     return curves
 
 

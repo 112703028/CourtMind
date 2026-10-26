@@ -95,7 +95,7 @@ def _shape(m):
     if len(ys) < 20:
         return np.nan, np.nan, np.nan, np.nan
     h = ys.max() - ys.min() + 1
-    low = xs[ys >= ys.min() + 0.8 * h]
+    low = xs[ys >= ys.max() - 0.2 * h]        # 最下面 20%（從最低點往上算 → 很薄的遮罩也一定有像素）
     return (low.max() - low.min() + 1) / h, (xs.max() - xs.min() + 1) / h, bb[1] + ys.max(), h
 
 

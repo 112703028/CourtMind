@@ -1,0 +1,135 @@
+{
+ "_doc": "訓練快取（stubs/train_contact_cache）的人工修正，套用方式見 apply_cache_fixes.py。swap_handler_screener：持球者和掩護者互換（標記寫反）。來源：2026-10-24 使用者看 output_videos/handler_check/。新片段的持球者修正改在 handler_labels_*.csv 的「正確持球者」欄（例：screen_493 → #3）。 add_events：補沒標到的真掩護（idx=5fps 影格、tid=掩護者，contact=True）。set_team：改分隊。",
+ "screen_164": {
+  "swap_handler_screener": true,
+  "src": "handler_check H06：H、S 要對調（持球者 #2、掩護者 #3）"
+ },
+ "screen_109": {
+  "add_events": [
+   {
+    "idx": 13,
+    "tid": 7,
+    "src": "unlabeled_check U03 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_114": {
+  "add_events": [
+   {
+    "idx": 24,
+    "tid": 6,
+    "src": "unlabeled_check U05 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_120": {
+  "add_events": [
+   {
+    "idx": 11,
+    "tid": 20,
+    "src": "unlabeled_check U06 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_156": {
+  "add_events": [
+   {
+    "idx": 18,
+    "tid": 5,
+    "src": "unlabeled_check U10 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_157": {
+  "add_events": [
+   {
+    "idx": 7,
+    "tid": 6,
+    "src": "unlabeled_check U11 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_159": {
+  "add_events": [
+   {
+    "idx": 11,
+    "tid": 2,
+    "src": "unlabeled_check U12 人工確認是真掩護（2026-10-26）"
+   },
+   {
+    "idx": 23,
+    "tid": 10,
+    "src": "unlabeled_check U13 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_161": {
+  "add_events": [
+   {
+    "idx": 31,
+    "tid": 2,
+    "src": "unlabeled_check U15 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_162": {
+  "add_events": [
+   {
+    "idx": 46,
+    "tid": 5,
+    "src": "unlabeled_check U16 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_166": {
+  "add_events": [
+   {
+    "idx": 41,
+    "tid": 0,
+    "src": "unlabeled_check U17 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_278": {
+  "add_events": [
+   {
+    "idx": 16,
+    "tid": 0,
+    "src": "unlabeled_check U19 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_284": {
+  "add_events": [
+   {
+    "idx": 10,
+    "tid": 7,
+    "src": "unlabeled_check U20 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_316": {
+  "add_events": [
+   {
+    "idx": 9,
+    "tid": 10,
+    "src": "unlabeled_check U21 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_479": {
+  "add_events": [
+   {
+    "idx": 8,
+    "tid": 3,
+    "src": "unlabeled_check U25 人工確認是真掩護（2026-10-26）"
+   }
+  ]
+ },
+ "screen_318": {
+  "set_team": {
+   "5": "defense"
+  },
+  "src_team": "unlabeled_check U22：#5 是防守者"
+ }
+}

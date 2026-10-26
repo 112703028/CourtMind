@@ -261,6 +261,31 @@ def collect_training(verbose=True):
     return S
 
 
+def sportvu_blitz(copies=3, noise=1.5, seed=0):
+    """使用者在 SportVU 動畫（output_videos/nba_probe*/label.csv）標「包夾」且有把握 = t 的擋拆 → 距離特徵，
+    每筆加 copies 份轉播等級的位置雜訊（nba_contact_data.add_noise）。只進訓練、不考。
+    2026-10-24：只加這 19 筆包夾，混合法包夾 63% → 68%、三類平均 73% → 75%；加全部類別或 LLM 弱標記反而沒幫助 / 變差。"""
+    from nba_contact_data import add_noise
+    rng = np.random.RandomState(seed)
+    X = []
+    for d in sorted((ROOT / 'output_videos').glob('nba_probe*')):
+        if not (d / 'label.csv').exists() or not (d / 'probe_samples.pkl').exists():
+            continue
+        L = list(csv.DictReader(open(d / 'label.csv', encoding='utf-8-sig')))
+        P = pickle.load(open(d / 'probe_samples.pkl', 'rb'))
+        col = [k for k in L[0] if k.startswith('防守方式')][0]
+        for r, s in zip(L, P):
+            if CN.get(r[col].strip()) != 'blitz' or r.get('有把握(t/f)', '').strip() != 't':
+                continue
+            c = {'court_tracks': s['court_tracks'], 'track_team': s['track_team'], 'handler_tid': s['handler_tid'],
+                 'n': len(s['court_tracks']), 'raw_tracks': s['court_tracks']}
+            for _ in range(copies):
+                f = cm.features(add_noise(c, noise, rng), {'tid': s['screener'], 'idx': s['contact_idx']})
+                if f is not None:
+                    X.append(f)
+    return np.array(X)
+
+
 # ── 訓練 ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -277,10 +302,14 @@ def main():
     y = np.array([to3(s['y']) for s in S], dtype=object)
     g = np.array([s['clip'] for s in S])
     either = np.array([bool(s['either']) for s in S])
-    med = np.nan_to_num(np.nanmedian(X, axis=0))
+    SV = sportvu_blitz()
+    med = np.nan_to_num(np.nanmedian(np.vstack([X, SV]) if len(SV) else X, axis=0))
     X = _fill_nan(X, med)
+    SV = _fill_nan(SV, med) if len(SV) else np.zeros((0, X.shape[1]))
+    sv_y = np.array(['blitz'] * len(SV), dtype=object)
     print(f"可用 {len(y)}（訓練 {(~either).sum()}，其中 {either.sum()} 筆換防/包夾都算對、只考不訓練）：",
           {NAME[k]: v for k, v in collections.Counter(y).items()})
+    print(f"另加 SportVU 人工包夾 {len(SV) // 3} 筆 × 3 份雜訊 = {len(SV)}（只進訓練）")
 
     # 交叉驗證（隨機森林部分；混合法要呼叫 LLM，見 docs/experiments/2026-10-23-*.md）
     ok_fn = lambda p, i: (p in ('switch', 'blitz')) if either[i] else p == y[i]
@@ -289,7 +318,7 @@ def main():
         P = np.zeros((len(y), len(CLASSES)))
         for tr, te in StratifiedGroupKFold(5, shuffle=True, random_state=sd).split(X, y, g):
             tr = tr[~either[tr]]
-            m = _rf(sd).fit(X[tr], y[tr])
+            m = _rf(sd).fit(np.vstack([X[tr], SV]), np.concatenate([y[tr], sv_y]))
             pr = m.predict_proba(X[te])
             for j, cl in enumerate(m.classes_):
                 P[te, CLASSES.index(cl)] = pr[:, j]
@@ -301,7 +330,7 @@ def main():
           + "  ".join(f"{NAME[c]} {v:.0%}" for c, v in zip(CLASSES, r[1:])) + f"   三類平均 {np.mean(r[1:]):.0%}")
 
     tr = ~either
-    model = _rf(0).fit(X[tr], y[tr])
+    model = _rf(0).fit(np.vstack([X[tr], SV]), np.concatenate([y[tr], sv_y]))
     pool = [{'y': s['y'], 'text': s['text']} for s in S if not s['either']]
     MODEL_PATH.parent.mkdir(exist_ok=True)
     pickle.dump({'model': model, 'nan_fill': med, 'offs': cm.OFFS, 'classes': CLASSES,

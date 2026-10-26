@@ -112,7 +112,7 @@ class PairwiseScreenDataset(Dataset):
             # convert_contact.py 產的資料才有：每窗屬於哪支 clip（按 clip 切 train/val 用）
             if 'clip_ids' in data:
                 clip_list.append(data['clip_ids'])
-            for k in ('anchor', 'sigma', 'clean_coords'):
+            for k in ('anchor', 'sigma', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2'):
                 if k in data:
                     self.meta[k] = float(data[k])
             n_pos = (data['pairwise_labels'].max(axis=1) >= 0.5).sum()
@@ -360,6 +360,8 @@ def main():
 
     print("Loading data...")
     dataset = PairwiseScreenDataset(paths) if args.pairwise else ScreenDataset(paths)
+    if args.rel_coords and dataset.trajs.shape[-1] != 2:
+        raise SystemExit('--rel_coords 會把每一欄都減掉持球者位置，不能跟姿態通道（in_dim > 2）一起用')
     if args.rel_coords:
         # 預訓練（pretrain.py / weak finetune）吃的是 extract_sequences 的相對座標，
         # 接觸幀資料是絕對球場座標 → 對齊成相對座標，預訓練學到的特徵才用得上
@@ -441,13 +443,19 @@ def main():
     n_layers = ckpt.get('n_layers', 2)
 
     ModelClass = ScreenNetPairwise if args.pairwise else ScreenNetClassifier
+    in_dim = int(dataset.trajs.shape[-1])          # 2 = x, y；8 = 再加姿態 / 遮罩通道（pose_features）
+    kw = {'in_dim': in_dim} if in_dim != 2 else {}
+    if in_dim != 2 and not args.pairwise:
+        raise SystemExit('姿態輸入（in_dim > 2）只支援 --pairwise')
+    if in_dim != 2:
+        print(f"輸入每人每張 {in_dim} 維（x, y + {in_dim - 2} 個姿態 / 遮罩通道）")
     if args.no_pretrain:
         # 對照組：同樣架構、權重全部隨機初始化 → 看 NBA 預訓練到底有沒有幫助
-        model = ModelClass(d_model, n_heads, n_layers).to(device)
+        model = ModelClass(d_model, n_heads, n_layers, **kw).to(device)
         print("不載入預訓練權重（--no_pretrain），全部隨機初始化")
     else:
         model = ModelClass.from_pretrained(
-            args.pretrain_ckpt, d_model, n_heads, n_layers
+            args.pretrain_ckpt, d_model, n_heads, n_layers, **kw
         ).to(device)
 
     if args.freeze_base:
@@ -519,6 +527,7 @@ def main():
                 'd_model':  d_model,
                 'n_heads':  n_heads,
                 'n_layers': n_layers,
+                'in_dim':   in_dim,
                 # 事件定位資料（convert_contact.py）才有：推論要用同一個 anchor 對回影格，
                 # 事件級驗證只能用 val_clips（沒訓練過的 clip）
                 'val_clips': val_clips,
