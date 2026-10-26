@@ -258,6 +258,10 @@ SAM3 單獨在 sam3_env 跑、dump player_tracks（同 SAM2 格式 `list[dict[pi
 - ❌ 無效：σ 放寬 / 自適應修正撞上時間（3 模型平均已抵消）、直接裁框的姿態（撞上時骨架拼錯）、反事實 ghost 模型（座標雜訊淹沒）、第二階段檢查器（+0.007，ScreenNet 已學到三人關係）
 - SAM3 遮罩（`--save_masks`）品質很好，遮罩版姿態不再拼錯；但對擋拆偵測和防守應對的幫助都很小
 
+**2026-10-26 球場座標第 2 版**（`court_v2.py`）：舊 homography 把關鍵點模型對看不到的點（信心 0.01~0.1）和左右底線矛盾點一起算 →
+只用信心 ≥0.4 同一邊的點 + 借前後張 → 持球者沒座標 12.5% → 5.9%、座標跳動 5.8% → 1.4%；ScreenNet ±0.4 秒 0.740 → 0.788，
+加 14 個補標記 → **0.815**（±1 秒 0.881）。正式模型 `finetune_contact_final2_s{1,2,3}`。學習曲線還沒飽和（每翻倍 +0.05）。
+
 **防守應對**：新片段補了大量標記（換防 15 → 119 筆）→ 換防大幅進步。包夾在五種方法都 ~30%，人工看完證實**大多是標記錯**（修正檔 `nba_data_pipeline/coverage_label_fixes.json`）→ 修正後**隨機森林 + 文字 LLM 混合三類平均 75%**（包夾 66%），這是建議的正式做法。姿態面向 / 畫面（VLM）/ 讓 LLM 自己查面向：效果都在 LLM 隨機變動範圍內（同設定重跑就有 17/154 題答案不同），暫不採用。
 
 ---
@@ -407,19 +411,24 @@ unset SSL_CERT_FILE
 ```bash
 # 先在 GPU 上跑 SAM3（預設只追 5fps 再內插回原片；原片 fps 追蹤會把重疊的掩護者/防守者併成一人）：
 #   python nba_data_pipeline/run_sam3_tracks.py --video input_videos/screen/screen_123.mp4 \
-#       --out stubs/screen_123_sam3_tracks.pkl --single_gpu
+#       --out stubs/screen_123_sam3_tracks.pkl --single_gpu --ball
+#   （--ball：另用 10fps 追球員 + 球 → inference 會做投籃偵測：誰出手、哪裡、進沒進，寫進 events.pkl 的 shots；
+#     要 models/rf_basketball_det_v4.onnx（Roboflow NBA 偵測權重）+ onnxruntime）
 # --ckpt 給 3 個種子的最終模型 → 機率平均；peak 門檻預設 0.6；座標自動 clean_court_tracks
+# final2 = 球場座標第 2 版（court_v2.py，只用可信關鍵點）+ 補標記；ckpt data_meta court_v2=1 → 推論自動用第 2 版座標
 # 每支影片用自己的 --stub_dir（stub 檔名固定，共用會讀到別支的舊結果）
 python nba_data_pipeline/inference.py \
     --video        input_videos/screen/screen_123.mp4 \
     --sam3_tracks  stubs/screen_123_sam3_tracks.pkl \
-    --ckpt nba_data_pipeline/checkpoints/finetune_contact_final_s1_best.pt \
-           nba_data_pipeline/checkpoints/finetune_contact_final_s2_best.pt \
-           nba_data_pipeline/checkpoints/finetune_contact_final_s3_best.pt \
+    --ckpt nba_data_pipeline/checkpoints/finetune_contact_final2_s1_best.pt \
+           nba_data_pipeline/checkpoints/finetune_contact_final2_s2_best.pt \
+           nba_data_pipeline/checkpoints/finetune_contact_final2_s3_best.pt \
     --output_video output_videos/e2e/screen_123.mp4 \
     --stub_dir     stubs/e2e_123
-# 戰術分析（防守應對 = models/coverage_rf.pkl 隨機森林 + LLM 混合）
+# 戰術分析（防守應對 = models/coverage_rf.pkl 隨機森林 + LLM 混合；有 shots 時每個擋拆多「結果」：誰出手、幾秒後、哪裡、進沒進）
 python nba_data_pipeline/tactics_tools.py output_videos/e2e/screen_123_events.pkl
+# 主播解說（LLM 走 .env 的 MYAI168 轉接，預設 gpt-5.5）
+python nba_data_pipeline/tactics_agent.py output_videos/e2e/screen_123_events.pkl
 ```
 
 ### 重訓防守應對模型

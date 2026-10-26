@@ -16,6 +16,7 @@ tactics_tools.py — 擋拆事件的幾何分析工具（純計算，不碰 LLM�
 """
 
 import math
+import collections
 import pickle
 import statistics
 
@@ -194,7 +195,7 @@ def deflicker_court_coords(court_coords, court_w=COURT_W_FT):
     return out, n_flipped
 
 
-def clean_court_tracks(court_coords, court_w=COURT_W_FT, jump=8.0, max_run=3):
+def clean_court_tracks(court_coords, court_w=COURT_W_FT, jump=8.0, max_run=3, fill_gaps=0):
     """
     球場座標清理（訓練 / 交叉驗證 / 推論共用同一套，5fps 下 jump=8ft ≈ 0.2 秒內不可能的位移）：
       1. 左右鏡像閃爍 → deflicker_court_coords
@@ -202,7 +203,10 @@ def clean_court_tracks(court_coords, court_w=COURT_W_FT, jump=8.0, max_run=3):
          → 那段用前後好影格線性內插；兩邊沒都有的人直接拿掉（build_windows 會沿用最後位置）
       3. 單人尖刺：某人跳出去、下一張又跳回來（腳點抓錯）→ 內插
     「跳走之後沒有跳回來」的持續偏移不動（分不出是哪一段才是對的）。
-    回 (清理後的 court_coords, {'flip', 'bad_frames', 'spikes'})。
+      4. fill_gaps > 0：某人中間連續缺 ≤ fill_gaps 張座標（前後都有）→ 用前後兩張線性內插補上
+         （2026-10-24：撞上那刻持球者 / 掩護者有框沒座標佔 ~12%，其中 2/3 連續缺 ≥3 張；
+          下游原本只沿用最後一次的位置 → 撞上時持球者等於停在半秒前不動）。預設 0 = 不補（舊行為）。
+    回 (清理後的 court_coords, {'flip', 'bad_frames', 'spikes', 'filled'})。
     """
     cc, n_flip = deflicker_court_coords(court_coords, court_w)
     cc = [dict(f) if f else f for f in cc]
@@ -250,7 +254,25 @@ def clean_court_tracks(court_coords, court_w=COURT_W_FT, jump=8.0, max_run=3):
                     and math.dist(a[p], d[p]) <= jump:
                 b[p] = ((a[p][0] + d[p][0]) / 2, (a[p][1] + d[p][1]) / 2)
                 n_spike += 1
-    return cc, {'flip': n_flip, 'bad_frames': n_bad, 'spikes': n_spike}
+
+    # 4. 個人短缺口內插
+    n_fill = 0
+    if fill_gaps > 0:
+        seen = {}                                  # pid → 最後一次有座標的影格
+        for f in range(n):
+            fd = cc[f] or {}
+            for p, xy in list(fd.items()):
+                g = seen.get(p)
+                if g is not None and 1 < f - g <= fill_gaps + 1:
+                    a = cc[g][p]
+                    for k in range(g + 1, f):
+                        t = (k - g) / (f - g)
+                        if not cc[k]:
+                            cc[k] = {}
+                        cc[k][p] = (a[0] + (xy[0] - a[0]) * t, a[1] + (xy[1] - a[1]) * t)
+                        n_fill += 1
+                seen[p] = f
+    return cc, {'flip': n_flip, 'bad_frames': n_bad, 'spikes': n_spike, 'filled': n_fill}
 
 
 # ── 1. 推斷進攻籃框 ───────────────────────────────────────────────────────────
@@ -1133,6 +1155,30 @@ def find_screen_instances(court_coords, player_assignment, events,
             bf, bd = min(run, key=lambda x: x[1])
             add_instance(bf, bd, D)
 
+    # peak 模式（ScreenNet 輸出撞上時間點，start/end 只是前後 ±0.3 秒）：上面的幾何規則在這麼短的窗內
+    # 常因座標誤差找不到 < contact_thr 的接觸 → 整個擋拆被丟掉（2026-10-26 端到端 10 支只剩 4 支）。
+    # ScreenNet 說有擋拆就保留：幾何找不到時用 peak_frame + 當下離掩護者最近的防守者，標 contact_geom=False。
+    for e in events:
+        pf = e.get('peak_frame')
+        if pf is None:
+            continue
+        S, H = e['screener_id'], e['handler_id']
+        if any(it['screener_id'] == S and abs(it['frame'] - pf) <= max(gap_merge, e['end'] - e['start'])
+               for it in instances):
+            continue
+        sp = get_pos(court_coords, S, pf, max_search=3)
+        best = (None, None)
+        if sp is not None and 0 <= pf < len(court_coords):
+            cands = [(round(_dist(sp, dp), 1), D) for D, dp in court_coords[pf].items()
+                     if D not in offense and maj_team.get(D) != handler_team]
+            if cands:
+                best = min(cands)
+        hp = get_pos(court_coords, H, pf, max_search=3)
+        instances.append({'frame': pf, 'screener_id': S, 'defender_id': best[1],
+                          'contact_dist': best[0] if best[0] is not None else float('nan'), 'handler_id': H,
+                          'screener_to_handler': round(_dist(sp, hp), 1) if (sp and hp) else None,
+                          'contact_geom': False})
+
     instances.sort(key=lambda x: x['frame'])
     return instances
 
@@ -1167,6 +1213,46 @@ def group_screen_events(instances, time_gap=25):
     return deduped
 
 
+KIND_ZH = {'jump-shot': '跳投', 'layup': '上籃 / 灌籃', 'unknown': '投籃'}
+
+
+def screen_outcome(data, screen_frame, handler_id, screener_id, handler_team, basket, max_s=8.0):
+    """擋拆之後這波的出手結果（shots 來自 inference.py 的投籃偵測，shot_detect.py）。
+    同一段鏡頭、擋拆後 -0.5 ~ max_s 秒內，進攻方的第一次出手；中間先看到防守方出手 = 球權已換，算沒有出手。
+    回 None = 沒有投籃偵測資料（舊 pkl / 沒跑 --ball）。"""
+    shots = data.get('shots')
+    if shots is None:
+        return None
+    fps = data.get('fps', 30.0)
+    cuts = data.get('cuts') or []
+    seg_end = next((c for c in cuts if c > screen_frame), len(data['court_coords']))
+    seg_start = max([0] + [c for c in cuts if c <= screen_frame])
+    lo, hi = screen_frame - int(0.5 * fps), min(seg_end, screen_frame + int(max_s * fps))
+    for sh in sorted(shots, key=lambda x: x['release_frame']):
+        f = sh['release_frame']
+        if not (max(lo, seg_start) <= f < hi):
+            continue
+        # 隊伍用整段多數決（單張分隊有雜訊：screen_286 / 342 / 407 持球者自己出手被判成防守方）
+        votes = collections.Counter(fr[sh['shooter']] for fr in data['player_assignment'] if sh['shooter'] in fr)
+        team = votes.most_common(1)[0][0] if votes else None
+        if sh['shooter'] != handler_id and team is not None and team != handler_team:
+            return {"shot": False, "note": f"{(f - screen_frame) / fps:.1f} 秒後防守方出手（球權已換）"}
+        pos = get_pos(data['court_coords'], sh['shooter'], f)
+        dist = round(_dist(pos, basket), 1) if pos else None
+        role = "持球者" if sh['shooter'] == handler_id else ("掩護者" if sh['shooter'] == screener_id else "其他進攻球員")
+        return {"shot": True, "seconds_after_screen": round((f - screen_frame) / fps, 1),
+                "shooter_id": sh['shooter'], "shooter_role": role,
+                "kind": KIND_ZH.get(sh['kind'], '投籃'),
+                "zone": classify_region(pos, basket) if pos else "未知",
+                "three_point": (dist >= 22.0) if dist is not None else None,
+                "shot_dist_ft": dist,
+                "made": sh['made'],          # True / False / None（看不出來）
+                "confident": bool(sh['strong'])}
+    if hi >= seg_end and seg_end < screen_frame + int(max_s * fps):
+        return {"shot": None, "note": f"擋拆後 {(seg_end - screen_frame) / fps:.1f} 秒鏡頭就切走，沒拍到結果"}
+    return {"shot": False, "note": f"擋拆後 {max_s:.0f} 秒內沒有偵測到出手"}
+
+
 def analyze_screen_instance(inst, data, handler_team, basket):
     """對一個擋拆實例算 region / roll-pop / coverage。"""
     cc = data['court_coords']
@@ -1190,6 +1276,7 @@ def analyze_screen_instance(inst, data, handler_team, basket):
         "coverage": cov['coverage'],
         "coverage_confidence": cov['confidence'],
         "coverage_detail": cov['detail'],
+        "outcome": screen_outcome(data, sf, H, sid, handler_team, basket),
     }
 
 
@@ -1247,6 +1334,15 @@ def main():
             print(f"        {fa['region']} | {action_zh.get(fa['action'])}"
                   f"({fa['action_delta_ft']:+.1f}ft) | 防守={fa['coverage']}"
                   f"[{fa['coverage_confidence']}]")
+        oc = analyze_screen_instance(g[-1], data, handler_team, basket)['outcome']   # 最後一次擋之後的結果
+        if oc is not None:
+            if oc.get('shot'):
+                made = {True: '進', False: '沒進', None: '進沒進看不出來'}[oc['made']]
+                print(f"  結果：{oc['seconds_after_screen']} 秒後 #{oc['shooter_id']}（{oc['shooter_role']}）"
+                      f"{oc['zone']}{'三分' if oc['three_point'] else ''}{oc['kind']}，{made}"
+                      f"{'' if oc['confident'] else '（沒看到籃框，較不確定）'}")
+            else:
+                print(f"  結果：{oc['note']}")
         print()
 
 

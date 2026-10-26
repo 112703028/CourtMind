@@ -591,6 +591,35 @@ def player_court_coords(player_tracks, court_keypoints):
     return out
 
 
+def player_court_coords_v2(player_tracks, court_keypoints, frame_size, fps, borrow_s=0.4):
+    """球場座標第 2 版（同訓練的 court_v2.py）：homography 只用信心 ≥ 0.4、畫面內、同一邊的關鍵點 + 中場線；
+    不到 4 點 → 借前後 borrow_s 秒內最近一張的 homography（訓練 5fps 借 ±2 張 = 0.4 秒）。"""
+    import court_v2
+    w, h = frame_size
+    n = len(player_tracks)
+    Hs = []
+    for kp in court_keypoints[:n]:
+        try:
+            xy, cf = kp.xy[0].cpu().numpy(), kp.conf[0].cpu().numpy()
+        except (AttributeError, IndexError, TypeError):
+            Hs.append(None); continue
+        Hs.append(court_v2.homography(xy, cf, w, h))
+    Hs += [None] * (n - len(Hs))
+    reach = max(1, int(round(borrow_s * fps)))
+    order = [d for k in range(1, reach + 1) for d in (k, -k)]
+    Hs = [H if H is not None else next((Hs[j] for d in order for j in [i + d] if 0 <= j < n and Hs[j] is not None), None)
+          for i, H in enumerate(Hs)]
+    out = []
+    for f_idx in range(n):
+        frame_out = {}
+        for pid, info in player_tracks[f_idx].items():
+            bbox = info.get('bbox') if isinstance(info, dict) else info
+            if bbox is not None and (pt := court_v2.project(Hs[f_idx], bbox)) is not None:
+                frame_out[pid] = pt
+        out.append(frame_out)
+    return out
+
+
 # ── Ball acquisition 平滑 ──────────────────────────────────────────────────────
 
 def smooth_ball_acquisition(ball_acquisition, min_run=4, fill_gap=8):
@@ -1156,6 +1185,8 @@ def main():
                         help='Siamese 同隊判斷閾值')
     parser.add_argument('--fps', type=float, default=None,
                         help='影片 fps（換算秒數用）；不給則從影片自動偵測，失敗 fallback 30')
+    parser.add_argument('--no_shots', action='store_true',
+                        help='不做投籃偵測（--sam3_tracks 的 pkl 有 shot_sam3 時預設會做）')
     parser.add_argument('--sam3_tracks', default=None,
                         help='SAM3 產的 player_tracks pkl 路徑。給定則讀它當追蹤結果，'
                              '跳過 SAM2（用 SAM3 乾淨追蹤取代）')
@@ -1367,7 +1398,14 @@ def main():
 
     # ── Court coords ───────────────────────────────────────────────────────
     print("Projecting players to court coordinates (feet)...")
-    court_coords = player_court_coords(player_tracks, court_kps)
+    # 模型用第 2 版座標訓練（data_meta court_v2）→ 推論也用第 2 版，否則照舊（訓練 / 推論要同一套）
+    use_v2 = any((torch.load(p, map_location='cpu', weights_only=False).get('data_meta') or {}).get('court_v2')
+                 for p in args.ckpt)
+    if use_v2:
+        court_coords = player_court_coords_v2(player_tracks, court_kps, (frames[0].shape[1], frames[0].shape[0]), fps)
+        print("  球場座標第 2 版（只用可信關鍵點 + 借前後張）")
+    else:
+        court_coords = player_court_coords(player_tracks, court_kps)
     n_with_coords = sum(1 for fc in court_coords if fc)
     print(f"  {n_with_coords}/{len(frames)} frames have homography")
 
@@ -1483,6 +1521,19 @@ def main():
         print(f"  {when}  handler={ev['handler_id']}, screener={ev['screener_id']}, "
               f"score={ev['score']:.3f}")
 
+    # ── 投籃偵測（run_sam3_tracks.py --ball 才有 shot_sam3）：誰出手、什麼時候、進沒進 ──────────
+    shots, cuts = [], []
+    if args.sam3_tracks and _sam3.get('shot_sam3') and not args.no_shots:
+        print("Shot detection（SAM3 球 / 球員遮罩 + Roboflow 籃框 / 跳投 / 上籃 / 進框）...")
+        from shot_detect import run_rf, detect_shots
+        rf = run_rf(frames, fps)
+        shots, cuts = detect_shots(_sam3['shot_sam3'], frames, rf, player_tracks)
+        print(f"  鏡頭切點 {[_fmt(c) for c in cuts]}；出手 {len(shots)} 次")
+        for sh in shots:
+            print(f"    {_fmt(sh['release_frame'])} #{sh['shooter']} {sh['kind']} "
+                  f"{'進' if sh['made'] else ('沒進' if sh['made'] is False else '?')}"
+                  f"{'' if sh['strong'] else '（弱候選：沒看到籃框）'}")
+
     # ── Dump 事件 + 座標，給 tactics_tools.py 判斷戰術（解耦感知與分析）──────────
     import pickle
     dump_path = os.path.splitext(args.output_video)[0] + '_events.pkl'
@@ -1503,6 +1554,9 @@ def main():
             # 每幀持球者（重算 ScreenNet 分數 / 之後重訓驗證會用到）
             'ball_acquisition': ball_acquisition,
             'yolo_defender_pids': sorted(yolo_defender_pids) if yolo_defender_pids else [],
+            # 投籃（shot_detect.py）：[{release_frame, t, shooter, kind, made, strong, amp, rim, segment}]；cuts = 鏡頭切點
+            'shots': shots,
+            'cuts': cuts,
         }, f)
     print(f"  事件資料 dump → {dump_path}")
 

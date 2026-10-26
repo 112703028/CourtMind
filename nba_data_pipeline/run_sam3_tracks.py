@@ -24,6 +24,8 @@ import pickle
 
 import numpy as np
 import torch
+
+BALL_FPS = 10.0       # 投籃偵測追球的 fps（--ball）
 from sam3.model_builder import build_sam3_video_predictor
 
 
@@ -220,6 +222,8 @@ def main():
                          '2026-10-24 端到端 9 支：5fps F1（±1 秒）0.89 vs 原片 0.82，SAM3 只處理 1/6 影格')
     ap.add_argument('--save_masks', action='store_true',
                     help='批次模式：另存 <clip>_sam3_masks.pkl（每幀每個 obj 的遮罩，pack_mask 格式）')
+    ap.add_argument('--ball', action='store_true',
+                    help='單支影片模式：另追 concept "basketball" 並存抽樣影格的球員 / 球遮罩（pkl 的 shot_sam3，給投籃偵測 shot_detect.py）')
     ap.add_argument('--exclude_referee', action='store_true', default=True,
                     help='跑第二個 concept "referee" 排掉裁判/教練（預設開）')
     ap.add_argument('--no_exclude_referee', dest='exclude_referee',
@@ -267,14 +271,40 @@ def main():
             shutil.copy(os.path.join(frame_dir, jpgs[f]), os.path.join(sub_dir, f'{i:05d}.jpg'))
         print(f"只追蹤 {len(idx)} 張（{args.sample_fps:g}fps），再內插回 {n} 幀")
         sub_tracks, excluded = track_frame_dir(predictor, sub_dir, len(idx), args)
+        shot = None
+        if args.ball:
+            # 投籃偵測用（shot_detect.py）：球員 + 球都用 BALL_FPS 再追一次。
+            # 5fps 時球飛起來那 0.2 秒會跟丟、黏到別的東西上（screen_286）；球員遮罩借 5fps 的也會掉
+            # （63 支答案：球 10fps + 球員 10fps 48 支全對、球員借 5fps 45）。擋拆偵測照舊用上面 5fps 的 player_tracks。
+            bstep = fps / BALL_FPS
+            bidx = []
+            while int(round(len(bidx) * bstep)) < n:
+                bidx.append(int(round(len(bidx) * bstep)))
+            ball_dir = tempfile.mkdtemp(prefix='sam3b_')
+            for i, f in enumerate(bidx):
+                shutil.copy(os.path.join(frame_dir, jpgs[f]), os.path.join(ball_dir, f'{i:05d}.jpg'))
+            print(f'投籃偵測：球員 + 球 {BALL_FPS:g}fps（{len(bidx)} 張）')
+            pm10 = []
+            p10, ex10 = track_frame_dir(predictor, ball_dir, len(bidx), args, pm10)
+            bmasks = []
+            balls = run_concept(predictor, ball_dir, 'basketball', len(bidx), bmasks)
+            shutil.rmtree(ball_dir, ignore_errors=True)
+            shot = dict(fps=BALL_FPS, orig_fps=fps, frame_idx=bidx,
+                        players=[{p: v['bbox'] for p, v in f.items()} for f in p10],
+                        player_masks=[{p: m for p, m in f.items() if p not in ex10} for f in pm10],
+                        balls=balls, ball_masks=bmasks)
         shutil.rmtree(sub_dir, ignore_errors=True)
         player_tracks = expand_tracks(sub_tracks, idx, n, step)
     else:
+        if args.ball:
+            raise SystemExit('--ball 要搭配 --sample_fps（投籃偵測用抽樣影格的遮罩）')
         player_tracks, excluded = track_frame_dir(predictor, frame_dir, n, args)
+        shot = None
 
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     with open(args.out, 'wb') as fp:
-        pickle.dump({'player_tracks': player_tracks, 'n_frames': n, 'fps': fps}, fp)
+        pickle.dump({'player_tracks': player_tracks, 'n_frames': n, 'fps': fps,
+                     **({'shot_sam3': shot} if shot else {})}, fp)
     n_tracked = sum(1 for ft in player_tracks if ft)
     print(f"SAM3 tracked {n_tracked}/{n} frames → {args.out}"
           f"（排掉 {len(excluded)} 個裁判/教練）")

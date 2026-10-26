@@ -121,7 +121,8 @@ def t_list_screens(ctx):
                                analyze_screen_instance)
     inst = find_screen_instances(ctx['cc'], ctx['pa'], ctx['events'])
     groups = group_screen_events(inst)
-    data_like = {'court_coords': ctx['cc'], 'player_assignment': ctx['pa'], 'fps': ctx['fps']}
+    data_like = {'court_coords': ctx['cc'], 'player_assignment': ctx['pa'], 'fps': ctx['fps'],
+                 'shots': ctx.get('shots'), 'cuts': ctx.get('cuts')}
     out = []
     for i, g in enumerate(groups, 1):
         screens = []
@@ -142,7 +143,9 @@ def t_list_screens(ctx):
         out.append({"event": i,
                     "time_s": round(min(frames) / ctx['fps'], 1),
                     "handler": g[0]['handler_id'],   # 持球者，避免 LLM 亂猜
-                    "play_type": ptype, "n_screens": len(g), "screens": screens})
+                    "play_type": ptype, "n_screens": len(g), "screens": screens,
+                    # 這波擋拆之後的出手結果（投籃偵測）；None = 沒有投籃資料
+                    "outcome": analyze_screen_instance(g[-1], data_like, ctx['handler_team'], ctx['basket'])['outcome']})
     return out
 
 
@@ -232,7 +235,7 @@ TOOLS = [
     # ── 精確判斷工具（精確的戰術判斷用這些，不要自己看軌跡猜）──
     {"type": "function", "function": {
         "name": "list_screens",
-        "description": "列出這球所有偵測到的擋拆事件，每個含掩護者、擋的防守者、roll/pop、防守方式(coverage)、位置。開場先用這個掌握全局。",
+        "description": "列出這球所有偵測到的擋拆事件，每個含掩護者、擋的防守者、roll/pop、防守方式(coverage)、位置，以及擋拆後的出手結果(outcome)。開場先用這個掌握全局。",
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
@@ -296,14 +299,25 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
   - unclear = 模型沒把握：就說防守應對不明確，不要自己從座標推測或硬給答案
   - confidence 是 medium 時用比較保留的語氣（「看起來是…」）
 
+出手結果（list_screens 每個事件的 outcome，投籃偵測算好的事實）：
+  - shot=True：誰出手（shooter_role 持球者 / 掩護者 / 其他進攻球員）、擋拆後幾秒、哪裡（zone、three_point）、
+    跳投或上籃（kind）、made（True 進 / False 沒進 / None 看不出來）。照這些說，用來評這波擋拆有沒有打出效果。
+  - 進沒進（made）是偵測器判的，準確率只有約 75%：一律用保留語氣（「看起來進了」「這球似乎沒進」），
+    不要說「確定命中」「確定沒進」。made=None 就說進沒進畫面看不清楚。誰出手、什麼時候、哪裡出手比較可靠，可以直接說。
+  - confident=False（沒看到籃框）：出手本身也要用保留語氣（「看起來是一次出手」）。
+  - 不要把欄位名稱（made=True、shot_dist_ft 之類）寫進解說，用自然的話說。
+  - shot=False / None：照 note 說（球權已換 / 沒出手 / 鏡頭切走沒拍到）；outcome 是 None 就完全不要提出手結果。
+
 風格：專業、精準、有畫面感。生動但每句都要有事實根據，不要編造球員姿勢、
-出手、得分或心理（你只看到擋拆，看不到出手結果）。
+出手、得分或心理；出手和進球只能說 outcome 裡有的。
 每次呼叫工具前先用一句話說明為什麼要查（讓推理可見）。"""
 
 
 def run_agent(question, ctx, model="gpt-4o", max_steps=10, verbose=True):
-    from openai import OpenAI
-    client = OpenAI()
+    from coverage_model import _llm_client     # 同防守應對：.env 有 MYAI168_API_KEY 走轉接，否則官方 OpenAI
+    client = _llm_client()
+    if client is None:
+        raise SystemExit('沒有 LLM 金鑰（.env 的 MYAI168_API_KEY 或 OPENAI_API_KEY）')
 
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": question}]
@@ -354,7 +368,8 @@ def build_ctx(data, frame_hint=None, handler=None):
         s, e = 0, n - 1
     basket = infer_target_basket(cc, s, e)
     return {'cc': cc, 'pa': pa, 'basket': basket, 'handler_team': 1,
-            'fps': data.get('fps', 30.0), 'events': events, 'handler': handler}
+            'fps': data.get('fps', 30.0), 'events': events, 'handler': handler,
+            'shots': data.get('shots'), 'cuts': data.get('cuts')}
 
 
 def main():
@@ -364,7 +379,7 @@ def main():
     ap.add_argument('--screener', type=int, help='掩護者 id')
     ap.add_argument('--frame', type=int, help='擋拆大約發生的幀')
     ap.add_argument('--question', help='自訂問題（不給就用 handler/screener/frame 自動組）')
-    ap.add_argument('--model', default='gpt-4o')
+    ap.add_argument('--model', default='gpt-5.5', help='走 MYAI168 轉接時 gpt-4o 不支援（no_pricing_info）')
     ap.add_argument('--max_steps', type=int, default=10)
     args = ap.parse_args()
 
