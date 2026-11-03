@@ -1247,6 +1247,7 @@ def screen_outcome(data, screen_frame, handler_id, screener_id, handler_team, ba
                 "three_point": (dist >= 22.0) if dist is not None else None,
                 "shot_dist_ft": dist,
                 "made": sh['made'],          # True / False / None（看不出來）
+                "made_source": sh.get('made_source', 'roboflow'),   # vlm（籃框放大圖，~85%）/ roboflow（~67%）
                 "confident": bool(sh['strong'])}
     if hi >= seg_end and seg_end < screen_frame + int(max_s * fps):
         return {"shot": None, "note": f"擋拆後 {(seg_end - screen_frame) / fps:.1f} 秒鏡頭就切走，沒拍到結果"}
@@ -1296,6 +1297,10 @@ def main():
 
     with open(args.pkl, 'rb') as f:
         data = pickle.load(f)
+    from shot_detect import apply_vlm_made        # 有籃框放大圖 + 本機 LLM 金鑰 → VLM 判進球（取代 Roboflow）
+    n_vlm = apply_vlm_made(data, args.pkl)
+    if data.get('shots'):
+        print(f"進球判斷：{n_vlm}/{len(data['shots'])} 次出手用 VLM，其餘用 Roboflow")
 
     fps = data.get('fps', 30.0)   # 舊 pkl 沒存 fps 就 fallback 30
     action_zh = {"roll": "順下(roll)", "pop": "外拉(pop)", "unclear": "不明顯"}
@@ -1337,7 +1342,7 @@ def main():
         oc = analyze_screen_instance(g[-1], data, handler_team, basket)['outcome']   # 最後一次擋之後的結果
         if oc is not None:
             if oc.get('shot'):
-                made = {True: '進', False: '沒進', None: '進沒進看不出來'}[oc['made']]
+                made = {True: '進', False: '沒進', None: '進沒進看不出來'}[oc['made']] + f"（{oc['made_source']}）"
                 print(f"  結果：{oc['seconds_after_screen']} 秒後 #{oc['shooter_id']}（{oc['shooter_role']}）"
                       f"{oc['zone']}{'三分' if oc['three_point'] else ''}{oc['kind']}，{made}"
                       f"{'' if oc['confident'] else '（沒看到籃框，較不確定）'}")

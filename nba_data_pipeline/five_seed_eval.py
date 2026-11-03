@@ -67,7 +67,7 @@ def main():
                 print(f'{key[0]} 種子 {key[1]} 曲線完成', flush=True)
 
     gts = {}
-    for cid in curves[('cleanall', 1)]:
+    for cid in curves[(TAGS[0], SEEDS[0])]:          # 基準那組的驗證片段（以前寫死 cleanall）
         c = pickle.load(open(CACHE_DIR / f'screen_{cid}.pkl', 'rb'))
         vs = c['valid_start_idx']
         gts[cid] = (vs, [e['idx'] for e in c['events'] if e['tid'] is not None and e['idx'] >= vs])

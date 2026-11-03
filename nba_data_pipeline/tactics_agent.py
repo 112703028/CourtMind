@@ -302,7 +302,7 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
 出手結果（list_screens 每個事件的 outcome，投籃偵測算好的事實）：
   - shot=True：誰出手（shooter_role 持球者 / 掩護者 / 其他進攻球員）、擋拆後幾秒、哪裡（zone、three_point）、
     跳投或上籃（kind）、made（True 進 / False 沒進 / None 看不出來）。照這些說，用來評這波擋拆有沒有打出效果。
-  - 進沒進（made）是偵測器判的，準確率只有約 75%：一律用保留語氣（「看起來進了」「這球似乎沒進」），
+  - 進沒進（made）是偵測判的：made_source=vlm（看籃框放大圖）約 85% 準、roboflow 約 67%，一律用保留語氣（「看起來進了」「這球似乎沒進」），
     不要說「確定命中」「確定沒進」。made=None 就說進沒進畫面看不清楚。誰出手、什麼時候、哪裡出手比較可靠，可以直接說。
   - confident=False（沒看到籃框）：出手本身也要用保留語氣（「看起來是一次出手」）。
   - 不要把欄位名稱（made=True、shot_dist_ft 之類）寫進解說，用自然的話說。
@@ -383,12 +383,14 @@ def main():
     ap.add_argument('--max_steps', type=int, default=10)
     args = ap.parse_args()
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("錯誤：沒有 OPENAI_API_KEY（放環境變數或 .env）")
+    if not (os.environ.get("MYAI168_API_KEY") or os.environ.get("OPENAI_API_KEY")):
+        print("錯誤：沒有 LLM 金鑰（.env 的 MYAI168_API_KEY 或 OPENAI_API_KEY）")
         return
 
     with open(args.pkl, 'rb') as f:
         data = pickle.load(f)
+    from shot_detect import apply_vlm_made        # 有籃框放大圖 → VLM 判進球（取代 Roboflow）
+    apply_vlm_made(data, args.pkl)
     ctx = build_ctx(data, frame_hint=args.frame, handler=args.handler)
 
     if args.question:

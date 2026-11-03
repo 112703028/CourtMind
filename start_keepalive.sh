@@ -1,6 +1,6 @@
 #!/bin/bash
 # 重啟 GPU 保持忙碌（不限時間）
-cd /root/basketball_analysis
+cd "$(dirname "$0")"     # 腳本所在的資料夾（/mnt/data/basketball_analysis 或 /root/basketball_analysis）
 source sam3_env.sh
 pkill -f gpu_keepalive.py
 sleep 1

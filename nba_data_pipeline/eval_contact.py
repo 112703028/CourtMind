@@ -44,8 +44,9 @@ def load_model(path):
     m.rel_coords = bool((ck.get('data_meta') or {}).get('rel_coords'))   # finetune --rel_coords 訓練的
     m.clean_coords = int(round((ck.get('data_meta') or {}).get('clean_coords') or 0))   # 訓練資料清座標的版本 → 評估同一版（2 = 再加短缺口內插）
     m.pose_feats = in_dim > 2                                            # 訓練資料有姿態通道 → 評估也算
-    m.poss_handler = bool((ck.get('data_meta') or {}).get('poss_handler'))
-    m.court_v2 = bool((ck.get('data_meta') or {}).get('court_v2'))         # 球場座標第 2 版（court_v2.py）→ 評估同一版   # 逐窗持球者（possession.py）→ 評估也多一組排法
+    m.poss_handler = bool((ck.get('data_meta') or {}).get('poss_handler'))   # 逐窗持球者（possession.py）→ 評估也多一組排法
+    m.court_v2 = bool((ck.get('data_meta') or {}).get('court_v2'))           # 球場座標第 2 版（court_v2.py）→ 評估同一版
+    m.court_feet = bool((ck.get('data_meta') or {}).get('court_feet'))       # 穩定腳點（court_v2.stable_feet）→ 評估同一版
     return m, ck
 
 
@@ -69,7 +70,7 @@ def score_curves(model, c, anchor):
     n, ct, raw, team, H = c['n'], c['court_tracks'], c['raw_tracks'], c['track_team'], c['handler_tid']
     if getattr(model, 'court_v2', False):
         import court_v2
-        ct = court_v2.court_tracks(c)
+        ct = court_v2.court_tracks(c, feet='stable' if getattr(model, 'court_feet', False) else 'bbox')
     if getattr(model, 'clean_coords', 0):
         from tactics_tools import clean_court_tracks
         ct = clean_court_tracks(ct, fill_gaps=6 if model.clean_coords == 2 else 0)[0]

@@ -112,7 +112,7 @@ class PairwiseScreenDataset(Dataset):
             # convert_contact.py 產的資料才有：每窗屬於哪支 clip（按 clip 切 train/val 用）
             if 'clip_ids' in data:
                 clip_list.append(data['clip_ids'])
-            for k in ('anchor', 'sigma', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2'):
+            for k in ('anchor', 'sigma', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2', 'court_feet'):
                 if k in data:
                     self.meta[k] = float(data[k])
             n_pos = (data['pairwise_labels'].max(axis=1) >= 0.5).sum()

@@ -1527,7 +1527,8 @@ def main():
         print("Shot detection（SAM3 球 / 球員遮罩 + Roboflow 籃框 / 跳投 / 上籃 / 進框）...")
         from shot_detect import run_rf, detect_shots
         rf = run_rf(frames, fps)
-        shots, cuts = detect_shots(_sam3['shot_sam3'], frames, rf, player_tracks)
+        shots, cuts = detect_shots(_sam3['shot_sam3'], frames, rf, player_tracks,
+                                   grid_prefix=os.path.splitext(args.output_video)[0])   # 籃框放大圖 → 本機 VLM 判進球
         print(f"  鏡頭切點 {[_fmt(c) for c in cuts]}；出手 {len(shots)} 次")
         for sh in shots:
             print(f"    {_fmt(sh['release_frame'])} #{sh['shooter']} {sh['kind']} "

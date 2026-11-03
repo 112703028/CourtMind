@@ -195,8 +195,10 @@ def _sample(c, ev, clip, y, src, fix):
             'text': lc.describe(c, ev, ds, dh), 'either': fix.get('either'), 'exclude': bool(fix.get('exclude'))}
 
 
-def collect_training(verbose=True):
-    """舊標記 + 新片段表格 + 人工修正 → 樣本 list（座標已清理）。"""
+def collect_training(verbose=True, court='v2'):
+    # court='v2s'：第 2 版 + 穩定腳點（court_v2.stable_feet，重疊時用頭頂 + 正常身高）
+    """舊標記 + 新片段表格 + 人工修正 → 樣本 list（座標已清理）。
+    court='v2'：球場座標第 2 版（court_v2.py，只用可信關鍵點；推論的 final2 模型也是這版）；'v1' = 快取原本的座標。"""
     import coverage_eval as ce
     from tactics_tools import clean_court_tracks
     from ingest_new_labels import parse_labels
@@ -210,6 +212,11 @@ def collect_training(verbose=True):
         c = pickle.load(open(p, 'rb'))
         if c.get('pending'):
             return None
+        if court in ('v2', 'v2s'):
+            import court_v2
+            ct2 = court_v2.court_tracks(c, feet='stable' if court == 'v2s' else 'bbox')
+            if ct2 is not None:
+                c['court_tracks'] = ct2
         c['court_tracks'] = clean_court_tracks(c['court_tracks'])[0]
         return c
 
@@ -295,9 +302,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--threshold', type=float, default=DEFAULT_THRESHOLD)
     ap.add_argument('--seeds', type=int, default=5)
+    ap.add_argument('--court', default='v2', choices=['v1', 'v2', 'v2s'], help='球場座標版本（v2 = court_v2.py；v2s = v2 + 穩定腳點）')
+    ap.add_argument('--no_save', action='store_true', help='只做交叉驗證，不存模型')
     args = ap.parse_args()
 
-    S = [s for s in collect_training() if not s['exclude']]
+    S = [s for s in collect_training(court=args.court) if not s['exclude']]
     X = np.array([s['X'] for s in S])
     y = np.array([to3(s['y']) for s in S], dtype=object)
     g = np.array([s['clip'] for s in S])
@@ -329,13 +338,15 @@ def main():
     print(f"\n隨機森林交叉驗證（{args.seeds} 種切法平均）：整體 {r[0]:.0%}   "
           + "  ".join(f"{NAME[c]} {v:.0%}" for c, v in zip(CLASSES, r[1:])) + f"   三類平均 {np.mean(r[1:]):.0%}")
 
+    if args.no_save:
+        return
     tr = ~either
     model = _rf(0).fit(np.vstack([X[tr], SV]), np.concatenate([y[tr], sv_y]))
     pool = [{'y': s['y'], 'text': s['text']} for s in S if not s['either']]
     MODEL_PATH.parent.mkdir(exist_ok=True)
     pickle.dump({'model': model, 'nan_fill': med, 'offs': cm.OFFS, 'classes': CLASSES,
                  'threshold': args.threshold, 'n_train': int(tr.sum()),
-                 'llm_pool': pool, 'llm_gate': LLM_GATE, 'llm_model': LLM_MODEL}, open(MODEL_PATH, 'wb'))
+                 'llm_pool': pool, 'llm_gate': LLM_GATE, 'llm_model': LLM_MODEL, 'court': args.court}, open(MODEL_PATH, 'wb'))
     print(f"\n已用 {int(tr.sum())} 筆訓練最終模型（含 LLM 範例池 {len(pool)} 筆、退防 ≥{LLM_GATE} 才不問 LLM）→ {MODEL_PATH}")
 
 
