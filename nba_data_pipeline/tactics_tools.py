@@ -1183,8 +1183,14 @@ def find_screen_instances(court_coords, player_assignment, events,
     return instances
 
 
-def group_screen_events(instances, time_gap=25):
+def segment_of(frame, cuts):
+    """第幾段鏡頭（0 起算）：frame 之前有幾個切點。精華剪輯切點後常是另一球 / 另一場，不能跟前面當同一波。"""
+    return sum(1 for c in (cuts or []) if c <= frame)
+
+
+def group_screen_events(instances, time_gap=25, cuts=None):
     """把時間相近的擋拆實例湊成事件（同時 2+ 個 = double/staggered）。回 list[list[instance]]。
+    cuts：鏡頭切點（原片影格）→ 跨切點的不湊在一起。
 
     同事件內若同一 (screener, 被擋防守者) 出現多次（一次擋被切成多筆），
     去重只留接觸最緊的一筆。
@@ -1193,7 +1199,8 @@ def group_screen_events(instances, time_gap=25):
         return []
     events, cur = [], [instances[0]]
     for it in instances[1:]:
-        if it['frame'] - cur[-1]['frame'] <= time_gap:
+        same_seg = segment_of(it['frame'], cuts) == segment_of(cur[-1]['frame'], cuts)
+        if it['frame'] - cur[-1]['frame'] <= time_gap and same_seg:
             cur.append(it)
         else:
             events.append(cur)
@@ -1319,7 +1326,7 @@ def main():
     # 3. 接觸式偵測：找所有擋拆實例 → 按時間湊成事件
     instances = find_screen_instances(data['court_coords'], data['player_assignment'],
                                       data['events'], contact_thr=args.contact_thr)
-    groups = group_screen_events(instances, time_gap=args.time_gap)
+    groups = group_screen_events(instances, time_gap=args.time_gap, cuts=data.get('cuts'))
 
     print(f"原始 {len(data['events'])} 事件 → {len(instances)} 次擋 → {len(groups)} 個擋拆事件  "
           f"(de-flicker {nflip}幀, ID-merge {pairs}, thr={args.contact_thr}ft, fps={fps:.1f})\n")
@@ -1331,7 +1338,8 @@ def main():
         handler_team = get_team(data['player_assignment'], H, f0) or 1
         basket = infer_target_basket(data['court_coords'], max(0, f0 - 15), f1 + 15)
         kind = "雙擋" if len(g) >= 2 else "單擋"
-        print(f"── 事件 #{i}  [{_fmt(f0)}~{_fmt(f1)}]  持球 #{H}  【{kind}, {len(g)}次擋】──")
+        seg = f"  （鏡頭 {segment_of(f0, data.get('cuts')) + 1}，切點後可能是另一球）" if segment_of(f0, data.get('cuts')) else ""
+        print(f"── 事件 #{i}  [{_fmt(f0)}~{_fmt(f1)}]  持球 #{H}  【{kind}, {len(g)}次擋】──{seg}")
         for j, it in enumerate(g, 1):
             fa = analyze_screen_instance(it, data, handler_team, basket)
             print(f"  擋{j}: #{fa['screener_id']} 擋防守者#{fa['screened_defender']}"

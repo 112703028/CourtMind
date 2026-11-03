@@ -250,6 +250,8 @@ def collect_training(verbose=True, court='v2'):
                     skip['沒填'] += len(scr); continue
                 if any(t not in CN for t in toks):
                     skip['寫法對不上'] += len(scr); continue
+                if len(toks) == 1 and len({s['tid'] for s in scr}) == 1:
+                    scr = scr[:1]                           # 同一人擋兩次只寫一個 → 只算第一次（跟以前一樣）
                 if len(toks) != len(scr):
                     skip['多個掩護只寫一個 / 數量對不上'] += len(scr); continue
                 for s, t in zip(scr, toks):

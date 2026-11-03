@@ -11,11 +11,16 @@ export HF_HUB_OFFLINE=1
 CK=nba_data_pipeline/checkpoints
 mkdir -p stubs/pipeline output_videos/pipeline
 echo "== 1/2 SAM3 追蹤（球員 + 球）"
+if [ -f stubs/pipeline/${NAME}_sam3.pkl ] && [ -z "$REDO_SAM3" ]; then echo "  已有 SAM3 結果，跳過（REDO_SAM3=1 重跑）"; else
 python -u nba_data_pipeline/run_sam3_tracks.py --video "$V" --out stubs/pipeline/${NAME}_sam3.pkl --single_gpu --ball \
   2>&1 | grep -E "抽出|只追蹤|投籃偵測|SAM3 tracked|裁判排除|Error|Traceback" || true
+fi
 echo "== 2/2 推論（擋拆 + 投籃）"
 python -u nba_data_pipeline/inference.py --video "$V" --sam3_tracks stubs/pipeline/${NAME}_sam3.pkl \
-  --ckpt $CK/finetune_contact_final2_s1_best.pt $CK/finetune_contact_final2_s2_best.pt $CK/finetune_contact_final2_s3_best.pt \
+  --ckpt $CK/finetune_contact_final3_s1_best.pt $CK/finetune_contact_final3_s2_best.pt $CK/finetune_contact_final3_s3_best.pt \
   --output_video output_videos/pipeline/${NAME}.mp4 --stub_dir stubs/pipeline_${NAME} \
   2>&1 | grep -E "第 2 版|have homography|Detected|撞上|鏡頭切點|出手|^    f|事件資料 dump|Error|Traceback" || true
+for f in stubs/pipeline/${NAME}_sam3.pkl output_videos/pipeline/${NAME}_events.pkl; do
+  [ -f "$f" ] || { echo "❌ 失敗：沒有產生 $f（上面的 Traceback 是原因）"; exit 1; }
+done
 echo "✅ 完成：output_videos/pipeline/${NAME}.mp4、output_videos/pipeline/${NAME}_events.pkl"

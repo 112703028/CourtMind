@@ -71,6 +71,23 @@ def _save_video_cv2(output_video_frames, output_video_path, fps=30):
     return True
 
 
+def _to_h264(path):
+    """cv2 寫的 XVID/mp4v .mp4 VS Code / 瀏覽器放不了 → 有 ffmpeg 就原地轉 H.264；沒有就保留原檔。"""
+    import shutil
+    import subprocess
+    if shutil.which('ffmpeg') is None:
+        return
+    tmp = os.path.splitext(path)[0] + '.h264tmp.mp4'
+    r = subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', path, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                        '-crf', '23', '-preset', 'fast', tmp], capture_output=True)
+    if r.returncode == 0 and os.path.getsize(tmp) > 0:
+        os.replace(tmp, path)
+    else:
+        print(f"  [video_utils] 轉 H.264 失敗，保留原檔：{r.stderr.decode(errors='ignore')[-200:]}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _save_video_imageio(output_video_frames, output_video_path, fps=30):
     """
     Streaming 寫法 — 一邊讀一邊寫，省記憶體（不要一次 stack 整個 array）。
@@ -112,6 +129,8 @@ def save_video(output_video_frames, output_video_path, fps=30):
         os.makedirs(out_dir)
 
     if _save_video_cv2(output_video_frames, output_video_path, fps=fps):
+        if output_video_path.lower().endswith('.mp4'):
+            _to_h264(output_video_path)
         return
     print(f"  [video_utils] cv2 VideoWriter 失敗，改用 imageio")
     _save_video_imageio(output_video_frames, output_video_path, fps=fps)

@@ -23,7 +23,7 @@ echo "== 3/7 建 venv、裝套件（10~20 分鐘，會下載好幾 GB）"
 source venv_sam3/bin/activate
 pip install -q --upgrade pip
 pip install einops timm iopath huggingface_hub pycocotools opencv-python-headless psutil ftfy regex \
-    scipy tqdm ultralytics supervision yt-dlp imageio av scikit-learn
+    scipy tqdm ultralytics supervision yt-dlp imageio av scikit-learn python-dotenv
 # ultralytics 可能把 torch 換掉 → 最後再固定回 2.7.1 cu126
 echo "== 3/7 固定 PyTorch 2.7.1 cu126"
 pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu126
@@ -37,6 +37,8 @@ pip install -q -e sam3
 pip install -q "setuptools<81"
 pip uninstall -y -q opencv-python || true
 pip install -q "opencv-python-headless==4.10.0.84" "scipy<1.15" "contourpy<1.3.3"
+# 投籃偵測的 Roboflow ONNX：1.21 以後要比主機驅動（CUDA 12.4）新的 CUDA，會退回 CPU
+pip install -q "onnxruntime-gpu==1.20.2"
 
 echo "== 5/7 寫環境設定檔"
 # 5. 環境設定檔（Triton 改用 venv 自帶的編譯器；container 預設指向 CUDA 13 的會報錯）
@@ -46,6 +48,8 @@ source $BASE/venv_sam3/bin/activate
 export TRITON_PTXAS_PATH=$TB/ptxas
 export TRITON_CUOBJDUMP_PATH=$TB/cuobjdump
 export TRITON_NVDISASM_PATH=$TB/nvdisasm
+export LD_LIBRARY_PATH=$(ls -d "$(python -c 'import nvidia, os; print(nvidia.__path__[0])')"/*/lib | paste -sd:):\$LD_LIBRARY_PATH   # onnxruntime CUDA 用 venv 的 nvidia libs
+export HF_HOME=\${HF_HOME:-/mnt/data/cache/hf}   # SAM3 權重放永久磁碟（~/.cache 在 /root，pod 重啟會消失）
 cd $BASE
 EOF
 grep -q "$BASE/sam3_env.sh" ~/.bashrc 2>/dev/null || echo "source $BASE/sam3_env.sh" >> ~/.bashrc

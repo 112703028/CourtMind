@@ -282,6 +282,21 @@ Responses API（gpt-5.5 在 chat completions 不能同時用工具和 reasoning�
 - 推測：ScreenNet 訓練時一直看到重疊時的跳動，已學會不依賴那幾張；兩人座標突然貼近本身也是撞上的訊號。
 - 新 pod（/mnt/data）重訓 court2fix 得到完全相同的 0.815 / 0.881 → 流程可重現。
 
+### 18. 修正標記第 2 輪（2026-11-03）— ✅ 小幅進步
+- 使用者改 `handler_labels_*.csv`：282 / 335 / 434 持球者（原本 = 掩護者）、15 列「2 個掩護只寫 1 個防守方式」逐一對應、
+  326 / 362 / 366 / 370 / 471 / 282 防守方式改成單一類別、349 / 404 / 409 是同一人擋兩次。
+- 程式：`ingest_new_labels.parse_labels` 支援「掩護者 6、影格 4,16」（同一人兩次）和「第一次退防 第二次包夾」；
+  重建快取時清掉 `_fixes_applied`（不然 `apply_cache_fixes.py` 以為套用過、補掩護 / 改分隊會被蓋掉沒補回）；
+  `coverage_model` 同一人兩次只寫一個防守方式 → 只算第一次（跟以前一樣）。快取備份 `stubs/backup/train_contact_cache_20261103.tgz`、pod `stubs/train_contact_cache_bak1103`。
+- 防守應對：408 → 452 筆（包夾 38 → 42），隨機森林交叉驗證 73%（之前 73.4%，持平）。正式模型更新，舊的 `coverage_rf_408.pkl`。
+- ScreenNet（資料 `output_contact_court2fix2_503`，同一份新答案評估、舊模型的曲線也用新快取重算）：
+  | | ±0.4 秒（3 個平均）| ±1 秒 |
+  |---|---|---|
+  | court2fix（舊標記訓練）| 0.820 | 0.885 |
+  | court2fix2（新標記）| **0.829**（7/10 贏，+0.009）| **0.898**（10/10 贏，+0.012）|
+  差距沒到 0.03，但標記是改對的、沒有壞處 → 正式模型 `finetune_contact_final3_s{1,2,3}`（全部 459 支、16 epoch = 交叉驗證最佳 epoch 中位數），run_pipeline.sh 已改用。
+- 還沒修：298 / 309（持球者 = 掩護者，CSV 沒改到）、125 / 160（舊片段同樣問題）、448 / 461（只有 2 人進攻）、234（2 個掩護寫 1 個）。
+
 ### 掩護偵測小結（2026-10-25）
 最近 4 個實驗（5fps 預訓練、姿態輸入、座標內插，以及姿態檢查器）在 5 種子比較下都落在 0.740 ± 0.001 →
 **在現有標記下大概已到頂**（±0.4 秒約 0.74、±1 秒約 0.85）；換種子的變動（±0.02）比任何改法都大。
@@ -354,6 +369,9 @@ Responses API（gpt-5.5 在 chat completions 不能同時用工具和 reasoning�
 - 接進推論：`inference.py` 存 `<影片>_shot<i>.jpg`（`detect_shots(grid_prefix=)`）；`tactics_tools` / `tactics_agent` 讀 pkl 後
   `shot_detect.apply_vlm_made` 問 VLM（本機才有金鑰），回 null / 沒金鑰 / 失敗 → 保留 Roboflow。`made_source` = vlm / roboflow，
   agent 依來源調整語氣。快取 `stubs/vlm_made_cache_infer.jsonl`。暫時只問一次（3 次投票沒做）。
+- 2026-11-03 新 pod 完整跑一遍（`run_pipeline.sh` → 本機 tactics_tools / tactics_agent，`output_videos/pipeline_test/`）：
+  screen_358 進、screen_300 沒進 → VLM 都對（Roboflow 兩支都判進）。兩支的第 2 個擋拆都在鏡頭切換之後：不是重播，是精華剪輯接到下一球（358 比分 3:2 → 3:5、300 直接換另一場）；agent 卻講成同一回合的「第二波」→ 修：`group_screen_events(cuts=)` 不跨切點湊事件、list_screens 帶 camera_segment、提示詞要求分開講。
+  screen_300 第 2 個接觸距離 11.8 ft、防守 unclear → 疑似誤報。
 
 ## 檔案
 

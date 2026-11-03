@@ -19,6 +19,7 @@ ingest_new_labels.py — 使用者標好的新片段（handler_labels_<起>_<迄
 用法：
   python nba_data_pipeline/ingest_new_labels.py output_videos/new_clip_check/handler_labels_185_282.csv
 """
+import re
 import sys
 import csv
 import glob
@@ -59,6 +60,8 @@ def parse_labels(path):
     for r in rows:
         r = (r + [''] * 7)[:7]
         clip, h_model, h_fix, scr, frm, cov, note = [x.strip() for x in r]
+        if re.fullmatch(r'(第[一二三四]次\s*\S+\s*)+', cov):   # 「第一次退防 第二次包夾」→「退防,包夾」
+            cov = ','.join(re.findall(r'第[一二三四]次\s*(\S+)', cov))
         if not clip:
             continue
         d = out.setdefault(clip, {'handler': None, 'screens': [], 'raw': []})
@@ -75,6 +78,8 @@ def parse_labels(path):
             s_ids, f_ids = ids(scr), ids(frm)
         if len(f_ids) == 1 and len(s_ids) > 1:
             f_ids = f_ids * len(s_ids)
+        if len(s_ids) == 1 and len(f_ids) > 1:          # 同一人擋兩次（例 掩護者 6、影格 4,16）
+            s_ids = s_ids * len(f_ids)
         for s, f in zip(s_ids, f_ids):
             d['screens'].append({'tid': s, 'idx': f, 'coverage': cov})
     return out
@@ -313,6 +318,7 @@ def main():
         c['team_method'] = 'oncourt+cleancolor+weighted_siam+user_roles+contact_def'
         c['pending'] = False
         c['source'] = 'new_clip_labeled'
+        c.pop('_fixes_applied', None)                   # events / 分隊重做了 → apply_cache_fixes.py 要重新套用
         pickle.dump(c, open(cp, 'wb'))
         n_scr += len(scr)
         cid = int(clip.split('_')[1])

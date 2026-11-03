@@ -118,9 +118,9 @@ def t_basket_info(ctx):
 def t_list_screens(ctx):
     """列出這球所有偵測到的擋拆 + 規則算好的事實（掩護者/擋誰/roll-pop/coverage）。"""
     from tactics_tools import (find_screen_instances, group_screen_events,
-                               analyze_screen_instance)
+                               analyze_screen_instance, segment_of)
     inst = find_screen_instances(ctx['cc'], ctx['pa'], ctx['events'])
-    groups = group_screen_events(inst)
+    groups = group_screen_events(inst, cuts=ctx.get('cuts'))
     data_like = {'court_coords': ctx['cc'], 'player_assignment': ctx['pa'], 'fps': ctx['fps'],
                  'shots': ctx.get('shots'), 'cuts': ctx.get('cuts')}
     out = []
@@ -142,6 +142,7 @@ def t_list_screens(ctx):
             ptype = "staggered (連續擋，兩人先後接力擋)"
         out.append({"event": i,
                     "time_s": round(min(frames) / ctx['fps'], 1),
+                    "camera_segment": segment_of(min(frames), ctx.get('cuts')) + 1,   # 鏡頭切換後 = 可能是另一球
                     "handler": g[0]['handler_id'],   # 持球者，避免 LLM 亂猜
                     "play_type": ptype, "n_screens": len(g), "screens": screens,
                     # 這波擋拆之後的出手結果（投籃偵測）；None = 沒有投籃資料
@@ -307,6 +308,12 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
   - confident=False（沒看到籃框）：出手本身也要用保留語氣（「看起來是一次出手」）。
   - 不要把欄位名稱（made=True、shot_dist_ft 之類）寫進解說，用自然的話說。
   - shot=False / None：照 note 說（球權已換 / 沒出手 / 鏡頭切走沒拍到）；outcome 是 None 就完全不要提出手結果。
+
+鏡頭段落（camera_segment）：
+  - 影片常是精華剪輯，鏡頭切換後通常是「下一球」甚至另一場比賽，不是同一回合。
+  - camera_segment 不同的擋拆要分開講（「下一個片段」「接著另一個回合」），不要串成同一波戰術（例如「第二波」「再發動」）、
+    不要說是同一批人的連續配合；切點兩邊的球員編號也不保證是同一個人。
+  - 不要寫出「camera segment」這個詞，說「鏡頭切換後的下一個片段」。
 
 風格：專業、精準、有畫面感。生動但每句都要有事實根據，不要編造球員姿勢、
 出手、得分或心理；出手和進球只能說 outcome 裡有的。
