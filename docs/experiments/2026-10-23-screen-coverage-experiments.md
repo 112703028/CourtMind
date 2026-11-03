@@ -344,6 +344,17 @@ Responses API（gpt-5.5 在 chat completions 不能同時用工具和 reasoning�
 - 端到端 10 支延長片段（`output_videos/shot_e2e/`，final2 模型、10fps 追球）：出手時間對 9/10（漏 314）；進沒進對 6/9（300、358、233 錯）；
   233 ScreenNet 沒抓到擋拆。成本：SAM3 每支約 3 倍（10 秒片段 ~2 分鐘，3090）。
 
+### 進球判斷：VLM 看籃框放大截圖（2026-11-01）
+42 次有人工答案的出手（延長片段）比較：
+- ❌ 2D 軌跡穿框（球心有沒有從籃框上方穿到下方）、籃網擺動（籃框下方像素變化）、兩者 + Roboflow 的邏輯回歸組合：都沒贏過 Roboflow。
+  轉播是側面高角度，球從框前 / 框後掉下去在 2D 上跟穿過一樣。
+- Roboflow「球進框」短暫偵測：**67%**。
+- ✅ **VLM**（gpt-5.5 medium，MYAI168 轉接）：球最接近籃框那刻前後 12 張（−0.3 ~ +0.9 秒，前段每 0.07 秒；每 0.2 秒會漏掉球在網裡那一刻），
+  以籃框為中心放大（寬 ±1.8 倍、上 1.5 下 2.2 倍籃框寬）排成 3×4 圖 → **83~86%**（兩次重跑 4/42 題答案不同）。
+- 接進推論：`inference.py` 存 `<影片>_shot<i>.jpg`（`detect_shots(grid_prefix=)`）；`tactics_tools` / `tactics_agent` 讀 pkl 後
+  `shot_detect.apply_vlm_made` 問 VLM（本機才有金鑰），回 null / 沒金鑰 / 失敗 → 保留 Roboflow。`made_source` = vlm / roboflow，
+  agent 依來源調整語氣。快取 `stubs/vlm_made_cache_infer.jsonl`。暫時只問一次（3 次投票沒做）。
+
 ## 檔案
 
 | 檔案 | 用途 |
