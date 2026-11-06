@@ -1,5 +1,5 @@
 {
- "_doc": "訓練快取（stubs/train_contact_cache）的人工修正，套用方式見 apply_cache_fixes.py。swap_handler_screener：持球者和掩護者互換（標記寫反）。來源：2026-10-24 使用者看 output_videos/handler_check/。新片段的持球者修正改在 handler_labels_*.csv 的「正確持球者」欄（例：screen_493 → #3）。 add_events：補沒標到的真掩護（idx=5fps 影格、tid=掩護者，contact=True）。set_team：改分隊。",
+ "_doc": "訓練快取（stubs/train_contact_cache）的人工修正，套用方式見 apply_cache_fixes.py。swap_handler_screener：持球者和掩護者互換（標記寫反）。來源：2026-10-24 使用者看 output_videos/handler_check/。新片段的持球者修正改在 handler_labels_*.csv 的「正確持球者」欄（例：screen_493 → #3）。 add_events：補沒標到的真掩護（idx=5fps 影格、tid=掩護者，contact=True）。set_team：改分隊。 set_handler：改持球者。remove_events：拿掉標錯的掩護（例：無球掩護）。 exclude：整支片段不用。",
  "screen_164": {
   "swap_handler_screener": true,
   "src": "handler_check H06：H、S 要對調（持球者 #2、掩護者 #3）"
@@ -10,6 +10,13 @@
     "idx": 13,
     "tid": 7,
     "src": "unlabeled_check U03 人工確認是真掩護（2026-10-26）"
+   }
+  ],
+  "remove_events": [
+   {
+    "idx": 8,
+    "tid": 10,
+    "src": "使用者確認是無球掩護（2026-11-04，miss_check/cat5_far_from_handler.jpg）"
    }
   ]
  },
@@ -97,6 +104,13 @@
     "tid": 0,
     "src": "unlabeled_check U19 人工確認是真掩護（2026-10-26）"
    }
+  ],
+  "remove_events": [
+   {
+    "idx": 10,
+    "tid": 10,
+    "src": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：不是掩護"
+   }
   ]
  },
  "screen_284": {
@@ -131,5 +145,56 @@
    "5": "defense"
   },
   "src_team": "unlabeled_check U22：#5 是防守者"
+ },
+ "screen_136": {
+  "remove_events": [
+   {
+    "idx": 3,
+    "tid": 3,
+    "src": "使用者確認是無球掩護（2026-11-04，miss_check/cat5_far_from_handler.jpg）"
+   }
+  ]
+ },
+ "screen_214": {
+  "remove_events": [
+   {
+    "idx": 3,
+    "tid": 9,
+    "src": "使用者確認是無球掩護（2026-11-04，miss_check/cat5_far_from_handler.jpg）"
+   }
+  ]
+ },
+ "screen_251": {
+  "remove_events": [
+   {
+    "idx": 5,
+    "tid": 5,
+    "src": "使用者確認是無球掩護（2026-11-04，miss_check/cat5_far_from_handler.jpg）"
+   }
+  ]
+ },
+ "screen_328": {
+  "remove_events": [
+   {
+    "idx": 8,
+    "tid": 14,
+    "src": "使用者確認是無球掩護（2026-11-04，miss_check/cat5_far_from_handler.jpg）"
+   }
+  ]
+ },
+ "screen_204": {
+  "set_handler": 6,
+  "src": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：持球者抓錯，正確是 #6"
+ },
+ "screen_242": {
+  "set_handler": 3,
+  "src": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：持球者抓錯，正確是 #3"
+ },
+ "screen_440": {
+  "set_handler": 4,
+  "src": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：持球者抓錯，正確是 #4"
+ },
+ "screen_443": {
+  "exclude": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：真正的持球者沒被追蹤到"
  }
 }

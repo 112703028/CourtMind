@@ -31,10 +31,15 @@ def curves_for(job):
     import torch
     torch.set_num_threads(threads)
     sys.path[:0] = [str(HERE), str(ROOT)]
-    from eval_contact import load_model, score_curves, CACHE_DIR
+    from eval_contact import load_model, score_curves, CACHE_DIR, FlipTTA
     d = {}
     for k in range(5):
-        m, ck = load_model(ROOT / f'nba_data_pipeline/checkpoints/finetune_contact_{tag}_s{s}_cv{k}_best.pt')
+        base = tag.split('+')[0]                        # 「court2fix2+tta」= 同一組模型、推論時翻轉平均；+ttax = 只左右翻
+        m, ck = load_model(ROOT / f'nba_data_pipeline/checkpoints/finetune_contact_{base}_s{s}_cv{k}_best.pt')
+        if tag.endswith('+tta'):
+            m = FlipTTA(m)
+        elif tag.endswith('+ttax'):
+            m = FlipTTA(m, flips=((0, 0), (1, 0)))
         for cid in ck['val_clips']:
             c = pickle.load(open(CACHE_DIR / f'screen_{cid}.pkl', 'rb'))
             d[cid] = score_curves(m, c, 3)
@@ -57,6 +62,10 @@ def main():
     global TAGS
     TAGS = tuple(args.tags.split(','))
     curves = pickle.load(open(CACHE, 'rb')) if CACHE.exists() else {}
+    for t in TAGS:                                   # finetune_seq.py 的整段模型：訓練時已算好曲線
+        if t.startswith('seq'):
+            for s in SEEDS:
+                curves[(t, s)] = pickle.load(open(ROOT / 'stubs' / 'seq_curves' / f'{t}_s{s}.pkl', 'rb'))
     jobs = [(t, s, args.threads) for t in TAGS for s in SEEDS if (t, s) not in curves]
     print(f'已有 {len(curves)} 組曲線，要算 {len(jobs)} 組：{[(t, s) for t, s, _ in jobs]}', flush=True)
     if jobs:
@@ -67,8 +76,11 @@ def main():
                 print(f'{key[0]} 種子 {key[1]} 曲線完成', flush=True)
 
     gts = {}
-    for cid in curves[(TAGS[0], SEEDS[0])]:          # 基準那組的驗證片段（以前寫死 cleanall）
+    common = set.intersection(*(set(curves[(t, s)]) for t in TAGS for s in SEEDS))   # 兩邊都有的片段（標記修正可能排除片段）
+    for cid in sorted(common):
         c = pickle.load(open(CACHE_DIR / f'screen_{cid}.pkl', 'rb'))
+        if c.get('pending'):                                 # 被 exclude 的片段不考
+            continue
         vs = c['valid_start_idx']
         gts[cid] = (vs, [e['idx'] for e in c['events'] if e['tid'] is not None and e['idx'] >= vs])
 

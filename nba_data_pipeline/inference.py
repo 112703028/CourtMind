@@ -693,6 +693,20 @@ class ProbAverage(torch.nn.Module):
         return torch.logit(p.clamp(1e-6, 1 - 1e-6))
 
 
+class SeqProbAverage(torch.nn.Module):
+    """多個整段 GRU 模型（finetune_seq.py）的機率平均：輸入 list of (L,10,10,2)，回 list of (L,) logit。"""
+    is_seq = True
+
+    def __init__(self, models):
+        super().__init__()
+        self.models = torch.nn.ModuleList(models)
+
+    def forward(self, seqs):
+        outs = [m(seqs) for m in self.models]
+        return [torch.logit(torch.stack([torch.sigmoid(o[i]) for o in outs]).mean(0).clamp(1e-6, 1 - 1e-6))
+                for i in range(len(seqs))]
+
+
 def positions_for(pid, court_coords, window):
     """取 pid 在 window 內 SEQ_LEN 幀的位置序列。漏幀用前一個已知值填。"""
     seq = np.zeros((SEQ_LEN, 2), dtype=np.float32)
@@ -909,7 +923,7 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
 
 def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acquisition,
                         fps, anchor=3, threshold=0.9, nms=3, dense=False,
-                        yolo_defender_pids=None):
+                        yolo_defender_pids=None, low=None):
     """
     事件定位版擋拆偵測（配 convert_contact.py 訓練的模型，例 finetune_contact_v2_pw5_best.pt）。
 
@@ -941,6 +955,8 @@ def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acq
     clip_team = {p: c.most_common(1)[0][0] for p, c in clip_team.items()}
     curves = {}
     offsets = range(max(1, int(round(step)))) if dense else [0]
+    is_seq = getattr(model, 'is_seq', False)      # 整段 GRU（finetune_seq.py）：窗先收集，同一組 (handler, 候選人) 連續的窗一起算
+    seq_windows = {}                              # (偏移, handler, 候選人) → {抽樣序號: (anchor 原片幀, 軌跡)}
 
     for off0 in offsets:
         sampled = []
@@ -1006,6 +1022,10 @@ def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acq
                 batch[b, N_OFFENSE:] = def_pos
             if getattr(model, 'rel_coords', False):       # finetune --rel_coords 訓練的模型
                 batch = to_handler_relative(batch)
+            if is_seq:
+                for cand, tr in zip(cands, batch):
+                    seq_windows.setdefault((off0, H, cand), {})[s] = (window[anchor], tr)
+                continue
             with torch.no_grad():
                 logits = model(torch.from_numpy(batch).to(device), roles.expand(len(cands), -1))
             probs = torch.sigmoid(logits)[:, 0].cpu().numpy()     # pair(0,1) = 第 0 號
@@ -1013,6 +1033,31 @@ def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acq
             for cand, pr in zip(cands, probs):
                 cv = curves.setdefault((H, cand), {})
                 cv[af] = max(cv.get(af, 0.0), float(pr))
+
+    if is_seq:
+        for (off0, H, cand), d in seq_windows.items():
+            idx = sorted(d)
+            runs, cur = [], [idx[0]]
+            for i in idx[1:]:
+                if i == cur[-1] + 1:
+                    cur.append(i)
+                else:
+                    runs.append(cur); cur = [i]
+            runs.append(cur)
+            for run in runs:                              # 窗不連續（持球者換人 / 候選人離開）就斷開
+                with torch.no_grad():
+                    p = torch.sigmoid(model([torch.from_numpy(np.stack([d[i][1] for i in run])).to(device)])[0])
+                cv = curves.setdefault((H, cand), {})
+                for i, pr in zip(run, p.cpu().numpy()):
+                    af = d[i][0]
+                    cv[af] = max(cv.get(af, 0.0), float(pr))
+        # 解碼：連續超過門檻的一段算一次（GRU 已經學會去重，不用 3 秒間隔）；雙門檻：掉到 low 以下才結束
+        from finetune_seq import decode_runs
+        events = [{'frame': int(f), 'handler_id': H, 'screener_id': cand, 'score': sc}
+                  for (H, cand), cv in curves.items()
+                  for f, sc in decode_runs(cv, threshold, gap=step * 1.5, low=low if low is not None else threshold - 0.2)]
+        events.sort(key=lambda e: e['frame'])
+        return events, curves
 
     # 找尖峰：>= threshold 的局部最大，同一組 (handler, 候選人) 彼此間隔 >= nms 張（換算原片幀）
     min_gap = nms * step
@@ -1155,8 +1200,8 @@ def main():
                         help='peak = 事件定位（每次擋拆一個時間點，配 convert_contact 訓練的模型）；'
                              'interval = 舊做法（超過門檻的幀合併成區間）；'
                              'auto = checkpoint 有記錄 anchor 就用 peak')
-    parser.add_argument('--peak_threshold', type=float, default=0.6,
-                        help='peak 模式：尖峰至少要多少分。2026-10-23 最終模型（座標清理 + 459 支、3 模型平均）交叉驗證：'
+    parser.add_argument('--peak_threshold', type=float, default=None,
+                        help='peak 模式：尖峰至少要多少分（不給 = 整段 GRU 模型用 ckpt 記的門檻，其他 0.6）。2026-10-23 最終模型（座標清理 + 459 支、3 模型平均）交叉驗證：'
                              '0.6 → 準確率 77%、抓到率 70%、F1 0.732；0.8 → 81% / 61% / 0.693（只準 4%、少抓 9%）')
     parser.add_argument('--peak_nms', type=int, default=15,
                         help='peak 模式：同一組人兩次擋拆至少隔幾張 5fps 影格（15 = 3 秒）。'
@@ -1417,11 +1462,27 @@ def main():
     print(f"  座標清理：鏡像 {cst['flip']}、壞影格 {cst['bad_frames']}、單人尖刺 {cst['spikes']}"
           f"（共 {len(frames)} 幀）")
 
+    # 分隊塌掉偵測（TeamSiamese 約 14% 片段會判成幾乎全部跟持球者同隊）→ 換訓練資料那套 assign_teams（team_fix.py）
+    from team_fix import fix_collapsed
+    player_assignment, team_msg = fix_collapsed(
+        frames, player_tracks, player_assignment, ball_acquisition, court_coords,
+        team_assigner if hasattr(team_assigner, '_encode_crops') else None, fps)
+    print(f"  分隊檢查：{team_msg}")
+
     # ── Model ──────────────────────────────────────────────────────────────
     models, ckpts = [], []
     for path in args.ckpt:
         print(f"Loading model: {path}")
-        ck = torch.load(path, map_location='cpu')
+        ck = torch.load(path, map_location='cpu', weights_only=False)
+        if ck.get('seq'):                              # 整段 GRU（finetune_seq.py --final）
+            from finetune_seq import load_seq
+            m, _ = load_seq(path, device)
+            if m.n_feat:
+                raise SystemExit('幾何特徵版 GRU（--feat）還沒接進推論')
+            m.is_seq, m.rel_coords = True, False
+            print(f"  整段 GRU 模型（起點 {ck.get('base_ckpt')}、解碼：連續一段算一次）")
+            models.append(m); ckpts.append(ck)
+            continue
         d_model, n_heads, n_layers = ck.get('d_model', 64), ck.get('n_heads', 4), ck.get('n_layers', 2)
         m = ScreenNetPairwise(d_model, n_heads, n_layers)
         m.load_state_dict(ck['model'])  # 載入完整權重（含 head）
@@ -1434,7 +1495,13 @@ def main():
     metas = [{k: v for k, v in (c.get('data_meta') or {}).items() if k in ('anchor', 'rel_coords')} for c in ckpts]
     if any(mt != metas[0] for mt in metas):
         raise SystemExit(f"--ckpt 的模型輸入設定不一致（anchor / rel_coords）：{metas}")
-    model = models[0] if len(models) == 1 else ProbAverage(models)
+    if len({bool(c.get('seq')) for c in ckpts}) > 1:
+        raise SystemExit('--ckpt 不能混用整段 GRU 模型和一般 ScreenNet')
+    if ckpts[0].get('seq'):
+        model = models[0] if len(models) == 1 else SeqProbAverage(models)
+        model.is_seq = True
+    else:
+        model = models[0] if len(models) == 1 else ProbAverage(models)
     model.rel_coords = models[0].rel_coords
     if len(models) > 1:
         print(f"  {len(models)} 個模型機率平均")
@@ -1449,12 +1516,16 @@ def main():
     if screen_mode == 'peak':
         # 事件定位：每次擋拆只有一個時間點（撞上那一刻）
         anchor = int(meta.get('anchor', 3))
+        if args.peak_threshold is None:
+            args.peak_threshold = float(meta.get('peak_threshold', 0.6)) if ckpt.get('seq') else 0.6
+        peak_low = float(meta.get('peak_low', args.peak_threshold - 0.2)) if ckpt.get('seq') else None
+        rule = f'連續一段算一次、掉到 {peak_low:.2f} 以下才結束（整段 GRU）' if ckpt.get('seq') else f'間隔 ≥{args.peak_nms} 張'
         print(f"Screen detection: peak 模式（5fps、anchor 第 {anchor} 格、"
-              f"門檻 {args.peak_threshold}、間隔 ≥{args.peak_nms} 張）...")
+              f"門檻 {args.peak_threshold}、{rule}）...")
         peaks, curves = detect_screen_peaks(
             model, device, court_coords, player_assignment, ball_acquisition, fps,
             anchor=anchor, threshold=args.peak_threshold, nms=args.peak_nms,
-            dense=args.peak_dense, yolo_defender_pids=yolo_defender_pids,
+            dense=args.peak_dense, yolo_defender_pids=yolo_defender_pids, low=peak_low,
         )
         peak_curves = {f"{h}-{c}": sorted(cv.items()) for (h, c), cv in curves.items()}
         # start/end = 撞上那一刻前後各 0.3 秒：下游 tactics_tools 用 start/end 找接觸、畫框用；
@@ -1558,6 +1629,10 @@ def main():
             # 投籃（shot_detect.py）：[{release_frame, t, shooter, kind, made, strong, amp, rim, segment}]；cuts = 鏡頭切點
             'shots': shots,
             'cuts': cuts,
+            # 每幀球員框（動態戰術板在原片上畫框 + 編號，檢查追蹤錯誤用）：list[dict[pid:[x1,y1,x2,y2]]]
+            'player_tracks': [{p: [round(float(x), 1) for x in (v.get('bbox') if isinstance(v, dict) else v)]
+                               for p, v in fd.items() if (v.get('bbox') if isinstance(v, dict) else v) is not None}
+                              for fd in player_tracks],
         }, f)
     print(f"  事件資料 dump → {dump_path}")
 

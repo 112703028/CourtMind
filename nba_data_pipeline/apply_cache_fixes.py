@@ -5,6 +5,9 @@ apply_cache_fixes.py — 把 cache_label_fixes.json 的人工修正寫進訓練�
   swap_handler_screener：持球者 ↔ 掩護者互換（handler_tid、events 的 tid、screener_tids）
   add_events：補沒標到的真掩護 [{idx(5fps 影格), tid(掩護者), src}]（contact=True；掩護者加進 screener_tids、分隊設進攻）
   set_team：改分隊 {pid: 'offense' | 'defense'}
+  set_handler：改持球者（pid；分隊設進攻）
+  exclude：整支片段不用（pending=True；build_court2 / finetune_seq / coverage_model 都會跳過），例：真正的持球者沒被追蹤到
+  remove_events：拿掉標錯的掩護 [{idx, tid, src}]（例：其實是無球掩護）；該掩護者沒有其他掩護就從 screener_tids 拿掉
 
 用法：python nba_data_pipeline/apply_cache_fixes.py
 """
@@ -54,6 +57,24 @@ def main():
             c['events'].sort(key=lambda e: e['idx'])
             done['add_events'] = True
             msgs.append(f"補掩護 {[(a['tid'], a['idx']) for a in fx['add_events']]}")
+        if fx.get('set_handler') is not None and not done.get('set_handler'):
+            old = c['handler_tid']
+            c['handler_tid'] = int(fx['set_handler'])
+            c['track_team'][c['handler_tid']] = 'offense'
+            done['set_handler'] = True
+            msgs.append(f"持球者 #{old} → #{c['handler_tid']}")
+        if fx.get('remove_events') and not done.get('remove_events'):
+            rm = {(a['tid'], a['idx']) for a in fx['remove_events']}
+            n0 = len(c['events'])
+            c['events'] = [e for e in c['events'] if (e['tid'], e['idx']) not in rm]
+            left = {e['tid'] for e in c['events'] if e['tid'] is not None}
+            c['screener_tids'] = [t for t in c['screener_tids'] if t in left]
+            done['remove_events'] = True
+            msgs.append(f"拿掉掩護 {sorted(rm)}（{n0 - len(c['events'])} 個）")
+        if fx.get('exclude') and not done.get('exclude'):
+            c['pending'], c['excluded_reason'] = True, fx['exclude']
+            done['exclude'] = True
+            msgs.append(f"整支不用：{fx['exclude']}")
         pickle.dump(c, open(p, 'wb'))
         print(f"{clip}：{'；'.join(msgs) if msgs else '已套用過，跳過'}")
 

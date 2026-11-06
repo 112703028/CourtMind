@@ -92,6 +92,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--games', type=int, default=0, help='用幾場（0 = 所有已解壓的）')
     ap.add_argument('--noise', type=float, default=1.5, help='位置雜訊尺度（英尺）；0 = 不加')
+    ap.add_argument('--noise_model', default='simple', choices=['simple', 'broadcast'],
+                    help='broadcast = sportvu_noise.apply_noise（對齊轉播實測：鏡頭範圍、遮擋、多張腳點錯、清理）')
     ap.add_argument('--sigma', type=float, default=1.0, help='接觸幀高斯 σ（同 convert_contact）')
     ap.add_argument('--anchor', type=int, default=3)
     ap.add_argument('--min_target', type=float, default=0.05)
@@ -116,7 +118,11 @@ def main():
     roles = np.array([0] + [1] * (N_OFF - 1) + [2] * N_DEF, dtype=np.int64)
     T, P, C, CTR = [], [], [], []
     for k in rng.permutation(len(chunks)):
-        c = add_noise(chunks[k], args.noise, rng)
+        if args.noise_model == 'broadcast':
+            import sportvu_noise
+            c = sportvu_noise.apply_noise(chunks[k], rng, sportvu_noise.BROADCAST)   # 已經 clean_court_tracks
+        else:
+            c = add_noise(chunks[k], args.noise, rng)
         for traj, pw, center in build_windows(c, args.sigma, args.sigma * 1.5, args.min_target, args.anchor):
             T.append(traj); P.append(pw); C.append(-(int(k) + 1)); CTR.append(center)
         if len(T) >= args.max_windows:
@@ -131,7 +137,7 @@ def main():
                             labels=lab[m], pairwise_labels=P[m], clip_ids=C[m], centers=CTR[m],
                             anchor=np.int32(args.anchor), sigma=np.float32(args.sigma))
     print(f'{len(set(C.tolist()))} 個片段 → {len(T)} 個窗：正 {int(lab.sum())}、負 {int((1 - lab).sum())}'
-          f'（雜訊 {args.noise}ft）→ {out}')
+          f'（雜訊 {args.noise_model if args.noise_model == "broadcast" else str(args.noise) + "ft"}）→ {out}')
 
 
 if __name__ == '__main__':

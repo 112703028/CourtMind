@@ -50,6 +50,33 @@ def load_model(path):
     return m, ck
 
 
+class FlipTTA(torch.nn.Module):
+    """推論時翻轉平均：原樣 + 左右 + 上下 + 左右上下 各算一次、機率平均，回 logit（呼叫端照常 sigmoid）。
+    缺的人（座標全 0）不翻。flips=((0,0),(1,0)) = 只左右翻（轉播鏡頭在同一側邊線，上下翻會把近 / 遠側的誤差型態對調）。
+   球場 91.8 × 49.2（同 finetune.FlipAugment）；相對座標模型翻轉 = 取負號。"""
+    W, H = 91.8, 49.2
+    FLIPS = ((0, 0), (1, 0), (0, 1), (1, 1))
+
+    def __init__(self, m, flips=None):
+        super().__init__()
+        self.m = m
+        self.flips = flips or self.FLIPS
+        for a in ('rel_coords', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2', 'court_feet'):
+            setattr(self, a, getattr(m, a, False))
+
+    def forward(self, traj, roles):
+        real = traj[..., :2].abs().sum(-1) > 0
+        ps = []
+        for fx, fy in self.flips:
+            t = traj.clone()
+            for axis, on, size in ((0, fx, self.W), (1, fy, self.H)):
+                if on:
+                    v = -t[..., axis] if self.rel_coords else size - t[..., axis]
+                    t[..., axis] = torch.where(real, v, t[..., axis])
+            ps.append(torch.sigmoid(self.m(t, roles)))
+        return torch.logit(torch.stack(ps).mean(0).clamp(1e-6, 1 - 1e-6))
+
+
 def window_traj(wc, order):
     """跟 convert_contact.build_windows 同樣的軌跡組法（缺幀沿用最後已知位置）。"""
     traj = np.zeros((N_PLAYERS, SEQ_LEN, 2), dtype=np.float32)

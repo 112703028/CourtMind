@@ -1,0 +1,562 @@
+{
+ "screen_88": [
+  {
+   "idx": 4,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_100": [
+  {
+   "idx": 10,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_102": [
+  {
+   "idx": 37,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_106": [
+  {
+   "idx": 19,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_107": [
+  {
+   "idx": 20,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_109": [
+  {
+   "idx": 9,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_111": [
+  {
+   "idx": 14,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_112": [
+  {
+   "idx": 38,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_113": [
+  {
+   "idx": 35,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_114": [
+  {
+   "idx": 23,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  },
+  {
+   "idx": 4,
+   "screener": 10,
+   "cutter": 4,
+   "defender": 5,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_115": [
+  {
+   "idx": 20,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_117": [
+  {
+   "idx": 21,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  },
+  {
+   "idx": 4,
+   "screener": 8,
+   "cutter": 10,
+   "defender": 1,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_134": [
+  {
+   "idx": 20,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_136": [
+  {
+   "idx": 8,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  },
+  {
+   "idx": 3,
+   "screener": 3,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "2026-11-04 拿掉"
+  }
+ ],
+ "screen_141": [
+  {
+   "idx": 11,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_143": [
+  {
+   "idx": 17,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_144": [
+  {
+   "idx": 21,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  },
+  {
+   "idx": 8,
+   "screener": 4,
+   "cutter": 2,
+   "defender": 3,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_145": [
+  {
+   "idx": 12,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_151": [
+  {
+   "idx": 24,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_161": [
+  {
+   "idx": 29,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_163": [
+  {
+   "idx": 12,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_165": [
+  {
+   "idx": 38,
+   "screener": null,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "舊標記"
+  }
+ ],
+ "screen_192": [
+  {
+   "idx": 4,
+   "screener": 1,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "新片段表格"
+  }
+ ],
+ "screen_249": [
+  {
+   "idx": 7,
+   "screener": 8,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "新片段表格"
+  }
+ ],
+ "screen_214": [
+  {
+   "idx": 3,
+   "screener": 9,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "2026-11-04 拿掉"
+  }
+ ],
+ "screen_251": [
+  {
+   "idx": 5,
+   "screener": 5,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "2026-11-04 拿掉"
+  }
+ ],
+ "screen_328": [
+  {
+   "idx": 8,
+   "screener": 14,
+   "cutter": null,
+   "defender": null,
+   "verdict": "t",
+   "note": "",
+   "src": "2026-11-04 拿掉"
+  }
+ ],
+ "screen_135": [
+  {
+   "idx": 7,
+   "screener": 3,
+   "cutter": 7,
+   "defender": 11,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_148": [
+  {
+   "idx": 17,
+   "screener": 9,
+   "cutter": 7,
+   "defender": 2,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_77": [
+  {
+   "idx": 4,
+   "screener": 5,
+   "cutter": 9,
+   "defender": 6,
+   "verdict": "f",
+   "note": "這是雙檔",
+   "src": "offball_check"
+  }
+ ],
+ "screen_473": [
+  {
+   "idx": 4,
+   "screener": 6,
+   "cutter": 4,
+   "defender": 8,
+   "verdict": "f",
+   "note": "這是雙檔",
+   "src": "offball_check"
+  }
+ ],
+ "screen_138": [
+  {
+   "idx": 4,
+   "screener": 4,
+   "cutter": 2,
+   "defender": 6,
+   "verdict": "t",
+   "note": "但紅色和黃色標反",
+   "src": "offball_check"
+  }
+ ],
+ "screen_292": [
+  {
+   "idx": 20,
+   "screener": 2,
+   "cutter": 1,
+   "defender": 3,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_130": [
+  {
+   "idx": 32,
+   "screener": 1,
+   "cutter": 0,
+   "defender": 9,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  },
+  {
+   "idx": 28,
+   "screener": 0,
+   "cutter": 1,
+   "defender": 9,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_166": [
+  {
+   "idx": 32,
+   "screener": 8,
+   "cutter": 5,
+   "defender": 3,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_116": [
+  {
+   "idx": 25,
+   "screener": 3,
+   "cutter": 1,
+   "defender": 7,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_217": [
+  {
+   "idx": 13,
+   "screener": 7,
+   "cutter": 9,
+   "defender": 2,
+   "verdict": "f",
+   "note": "持球掩護",
+   "src": "offball_check"
+  }
+ ],
+ "screen_152": [
+  {
+   "idx": 11,
+   "screener": 10,
+   "cutter": 2,
+   "defender": 5,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  },
+  {
+   "idx": 33,
+   "screener": 9,
+   "cutter": 10,
+   "defender": 3,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_146": [
+  {
+   "idx": 23,
+   "screener": 12,
+   "cutter": 13,
+   "defender": 6,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_501": [
+  {
+   "idx": 10,
+   "screener": 6,
+   "cutter": 3,
+   "defender": 1,
+   "verdict": "f",
+   "note": "持球掩護",
+   "src": "offball_check"
+  }
+ ],
+ "screen_133": [
+  {
+   "idx": 27,
+   "screener": 15,
+   "cutter": 0,
+   "defender": 16,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_389": [
+  {
+   "idx": 7,
+   "screener": 5,
+   "cutter": 8,
+   "defender": 3,
+   "verdict": "f",
+   "note": "持球掩護",
+   "src": "offball_check"
+  }
+ ],
+ "screen_140": [
+  {
+   "idx": 31,
+   "screener": 7,
+   "cutter": 2,
+   "defender": 9,
+   "verdict": "f",
+   "note": "持球掩護",
+   "src": "offball_check"
+  }
+ ],
+ "screen_103": [
+  {
+   "idx": 28,
+   "screener": 3,
+   "cutter": 8,
+   "defender": 9,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_13": [
+  {
+   "idx": 8,
+   "screener": 1,
+   "cutter": 6,
+   "defender": 3,
+   "verdict": "t",
+   "note": "",
+   "src": "offball_check"
+  }
+ ],
+ "screen_330": [
+  {
+   "idx": 5,
+   "screener": 5,
+   "cutter": 1,
+   "defender": 7,
+   "verdict": "f",
+   "note": "",
+   "src": "offball_check"
+  }
+ ]
+}

@@ -261,7 +261,8 @@ SAM3 單獨在 sam3_env 跑、dump player_tracks（同 SAM2 格式 `list[dict[pi
 **2026-10-26 球場座標第 2 版**（`court_v2.py`）：舊 homography 把關鍵點模型對看不到的點（信心 0.01~0.1）和左右底線矛盾點一起算 →
 只用信心 ≥0.4 同一邊的點 + 借前後張 → 持球者沒座標 12.5% → 5.9%、座標跳動 5.8% → 1.4%；ScreenNet ±0.4 秒 0.740 → 0.788，
 加 14 個補標記 → **0.815**（±1 秒 0.881）。
-2026-11-03 修正標記第 2 輪（持球者 = 掩護者、同一人擋兩次等）→ 3 個平均 ±0.4 秒 0.820 → **0.829**、±1 秒 0.885 → **0.898**（同一份新答案比）。正式模型 `finetune_contact_final3_s{1,2,3}`。學習曲線還沒飽和（每翻倍 +0.05）。
+2026-11-03 修正標記第 2 輪（持球者 = 掩護者、同一人擋兩次等）→ 3 個平均 ±0.4 秒 0.820 → **0.829**、±1 秒 0.885 → **0.898**（同一份新答案比）。正式模型 `finetune_contact_final3_s{1,2,3}`。
+2026-11-03 翻轉增強（`--flip_aug`）±0.4 秒 0.829 → **0.849**（10/10）→ final4；再加整段 GRU（`finetune_seq.py`，ScreenNet 後面接雙向 GRU 修正量）準確率持平但能取代「找峰值 + 3 秒去重」→ **正式 = `finetune_seq_final4gru_s{1,2,3}`**，解碼「連續一段算一次」（門檻 0.7、掉到 0.5 以下才結束）。推論時 SportVU 混合、推論翻轉平均都沒用。學習曲線還沒飽和（每翻倍 +0.05）。
 
 **防守應對**：新片段補了大量標記（換防 15 → 119 筆）→ 換防大幅進步。包夾在五種方法都 ~30%，人工看完證實**大多是標記錯**（修正檔 `nba_data_pipeline/coverage_label_fixes.json`）→ 修正後**隨機森林 + 文字 LLM 混合三類平均 75%**（包夾 66%），這是建議的正式做法。
 2026-11-01 改用第 2 版座標重訓 + 重測（同 401 筆比）：混合 72.2% → **76.6%**（包夾 58 → 68%），`models/coverage_rf.pkl` 已是第 2 版。姿態面向 / 畫面（VLM）/ 讓 LLM 自己查面向：效果都在 LLM 隨機變動範圍內（同設定重跑就有 17/154 題答案不同），暫不採用。
@@ -417,7 +418,7 @@ unset SSL_CERT_FILE
 #   （--ball：另用 10fps 追球員 + 球 → inference 會做投籃偵測：誰出手、哪裡、進沒進，寫進 events.pkl 的 shots；
 #     要 models/rf_basketball_det_v4.onnx（Roboflow NBA 偵測權重）+ onnxruntime）
 # --ckpt 給 3 個種子的最終模型 → 機率平均；peak 門檻預設 0.6；座標自動 clean_court_tracks
-# final3 = 球場座標第 2 版（court_v2.py，只用可信關鍵點）+ 補標記 + 2026-11-03 修正標記；ckpt data_meta court_v2=1 → 推論自動用第 2 版座標
+# final4gru = final4（第 2 版座標 + 修正標記 + 翻轉增強）+ 整段 GRU（ckpt 有 seq 欄位 → 自動走 GRU + 連續一段解碼）；ckpt data_meta court_v2=1 → 推論自動用第 2 版座標
 # 每支影片用自己的 --stub_dir（stub 檔名固定，共用會讀到別支的舊結果）
 python nba_data_pipeline/inference.py \
     --video        input_videos/screen/screen_123.mp4 \

@@ -206,6 +206,29 @@ def run_batch(predictor, args):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def ball_track(predictor, frame_dir, jpgs, n, fps, args):
+    """投籃偵測 / 持球者用：球員 + 球都用 BALL_FPS 再追一次 → shot_sam3 dict。
+    5fps 時球飛起來那 0.2 秒會跟丟、黏到別的東西上（screen_286）；球員遮罩借 5fps 的也會掉
+    （63 支答案：球 10fps + 球員 10fps 48 支全對、球員借 5fps 45）。擋拆偵測照舊用 5fps 的 player_tracks。"""
+    bstep = fps / BALL_FPS
+    bidx = []
+    while int(round(len(bidx) * bstep)) < n:
+        bidx.append(int(round(len(bidx) * bstep)))
+    ball_dir = tempfile.mkdtemp(prefix='sam3b_')
+    for i, f in enumerate(bidx):
+        shutil.copy(os.path.join(frame_dir, jpgs[f]), os.path.join(ball_dir, f'{i:05d}.jpg'))
+    print(f'投籃偵測：球員 + 球 {BALL_FPS:g}fps（{len(bidx)} 張）')
+    pm10 = []
+    p10, ex10 = track_frame_dir(predictor, ball_dir, len(bidx), args, pm10)
+    bmasks = []
+    balls = run_concept(predictor, ball_dir, 'basketball', len(bidx), bmasks)
+    shutil.rmtree(ball_dir, ignore_errors=True)
+    return dict(fps=BALL_FPS, orig_fps=fps, frame_idx=bidx,
+                players=[{p: v['bbox'] for p, v in f.items()} for f in p10],
+                player_masks=[{p: m for p, m in f.items() if p not in ex10} for f in pm10],
+                balls=balls, ball_masks=bmasks)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--video', default=None, help='單支影片模式')
@@ -224,6 +247,9 @@ def main():
                     help='批次模式：另存 <clip>_sam3_masks.pkl（每幀每個 obj 的遮罩，pack_mask 格式）')
     ap.add_argument('--ball', action='store_true',
                     help='單支影片模式：另追 concept "basketball" 並存抽樣影格的球員 / 球遮罩（pkl 的 shot_sam3，給投籃偵測 shot_detect.py）')
+    ap.add_argument('--ball_only', action='store_true',
+                    help='單支影片模式：只追 10fps 球員 + 球（shot_sam3），不重跑 5fps 擋拆追蹤；pkl 只有 shot_sam3'
+                         '（已經有擋拆追蹤的片段補追球用，編號跟原本的 player_tracks 不同，用 IoU 對）')
     ap.add_argument('--exclude_referee', action='store_true', default=True,
                     help='跑第二個 concept "referee" 排掉裁判/教練（預設開）')
     ap.add_argument('--no_exclude_referee', dest='exclude_referee',
@@ -259,6 +285,14 @@ def main():
     n = len(jpgs)
     print(f"抽出 {n} 幀")
     fps = get_fps(args.video)
+    if args.ball_only:
+        shot = ball_track(predictor, frame_dir, jpgs, n, fps, args)
+        shutil.rmtree(frame_dir, ignore_errors=True)
+        os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
+        with open(args.out, 'wb') as fp:
+            pickle.dump({'n_frames': n, 'fps': fps, 'shot_sam3': shot}, fp)
+        print(f"只追球（{BALL_FPS:g}fps {len(shot['frame_idx'])} 張）→ {args.out}")
+        return
 
     if args.sample_fps and args.sample_fps < fps:
         # 只追蹤抽出來的影格（跟 inference / 訓練一樣的抽法），再內插回原片每一幀
@@ -271,28 +305,7 @@ def main():
             shutil.copy(os.path.join(frame_dir, jpgs[f]), os.path.join(sub_dir, f'{i:05d}.jpg'))
         print(f"只追蹤 {len(idx)} 張（{args.sample_fps:g}fps），再內插回 {n} 幀")
         sub_tracks, excluded = track_frame_dir(predictor, sub_dir, len(idx), args)
-        shot = None
-        if args.ball:
-            # 投籃偵測用（shot_detect.py）：球員 + 球都用 BALL_FPS 再追一次。
-            # 5fps 時球飛起來那 0.2 秒會跟丟、黏到別的東西上（screen_286）；球員遮罩借 5fps 的也會掉
-            # （63 支答案：球 10fps + 球員 10fps 48 支全對、球員借 5fps 45）。擋拆偵測照舊用上面 5fps 的 player_tracks。
-            bstep = fps / BALL_FPS
-            bidx = []
-            while int(round(len(bidx) * bstep)) < n:
-                bidx.append(int(round(len(bidx) * bstep)))
-            ball_dir = tempfile.mkdtemp(prefix='sam3b_')
-            for i, f in enumerate(bidx):
-                shutil.copy(os.path.join(frame_dir, jpgs[f]), os.path.join(ball_dir, f'{i:05d}.jpg'))
-            print(f'投籃偵測：球員 + 球 {BALL_FPS:g}fps（{len(bidx)} 張）')
-            pm10 = []
-            p10, ex10 = track_frame_dir(predictor, ball_dir, len(bidx), args, pm10)
-            bmasks = []
-            balls = run_concept(predictor, ball_dir, 'basketball', len(bidx), bmasks)
-            shutil.rmtree(ball_dir, ignore_errors=True)
-            shot = dict(fps=BALL_FPS, orig_fps=fps, frame_idx=bidx,
-                        players=[{p: v['bbox'] for p, v in f.items()} for f in p10],
-                        player_masks=[{p: m for p, m in f.items() if p not in ex10} for f in pm10],
-                        balls=balls, ball_masks=bmasks)
+        shot = ball_track(predictor, frame_dir, jpgs, n, fps, args) if args.ball else None
         shutil.rmtree(sub_dir, ignore_errors=True)
         player_tracks = expand_tracks(sub_tracks, idx, n, step)
     else:
