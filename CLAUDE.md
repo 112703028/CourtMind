@@ -430,6 +430,11 @@ python nba_data_pipeline/inference.py \
     --stub_dir     stubs/e2e_123
 # 戰術分析（防守應對 = models/coverage_rf.pkl 隨機森林 + LLM 混合；有 shots 時每個擋拆多「結果」：誰出手、幾秒後、哪裡、進沒進）
 python nba_data_pipeline/tactics_tools.py output_videos/e2e/screen_123_events.pkl
+# 傳球（手腕版，run_pipeline.sh 第 3 步會自動做）：選球 + 碰球的人 → 遮罩版手腕姿態 → 寫進 events.pkl 的 passes
+#   （tactics_tools 每個擋拆多「擋拆後的傳球」；準 ~7-8 成、漏 ~4 成）
+#   python nba_data_pipeline/possession_sam3.py prep <影片> <sam3.pkl> <touch.pkl>
+#   python nba_data_pipeline/pose_hands.py --ball_pkl <sam3.pkl> --video <影片> --out <pose.pkl>
+#   python nba_data_pipeline/pose_pass.py add <events.pkl> <sam3.pkl> <touch.pkl> <pose.pkl> <影片>
 # 主播解說（LLM 走 .env 的 MYAI168 轉接，預設 gpt-5.5）
 python nba_data_pipeline/tactics_agent.py output_videos/e2e/screen_123_events.pkl
 ```

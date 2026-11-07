@@ -7,7 +7,8 @@ A 段最後一張時 B 的手腕要離球 ≥ sep 倍身高（排除兩人手都
 資料：stubs/pose_hands/<片段>.pkl（pose_hands.py）、stubs/ball_batch/<片段>_ball.pkl + _touch.pkl、output_videos/batch 的 events.pkl。
 評估：pass_gt_probe.GT（使用者標的 21 個真傳球）。
 
-用法：python nba_data_pipeline/pose_pass.py
+用法：python nba_data_pipeline/pose_pass.py                 # 21 個真傳球評估
+     python nba_data_pipeline/pose_pass.py add <events.pkl> <ball.pkl> <touch.pkl> <pose.pkl> <影片>   # 寫進 events.pkl
 """
 import sys
 import pickle
@@ -57,11 +58,11 @@ def smooth_flicker(seq, max_len=1):
 _DET = None
 
 
-def rims_at(c, frames_needed):
+def rims_at(key, frames_needed, video):
     """原片影格 → Roboflow 籃框框（信心最高、≥ 0.4）；快取 stubs/rim_cache/<片段>.pkl（只跑用得到的影格）。"""
     global _DET
     import cv2
-    p = ROOT / 'stubs' / 'rim_cache' / f'screen_{c}.pkl'
+    p = ROOT / 'stubs' / 'rim_cache' / f'{key}.pkl'
     cache = pickle.load(open(p, 'rb')) if p.exists() else {}
     todo = sorted(set(frames_needed) - set(cache))
     if todo:
@@ -69,7 +70,7 @@ def rims_at(c, frames_needed):
             sys.path.insert(0, str(HERE))
             from shot_detect_rf import OnnxDetector
             _DET = OnnxDetector(ROOT / 'models' / 'rf_basketball_det_v4.onnx')
-        cap = cv2.VideoCapture(str(ROOT / 'input_videos' / 'screen' / f'screen_{c}.mp4'))
+        cap = cv2.VideoCapture(str(video))
         for f in todo:
             cap.set(cv2.CAP_PROP_POS_FRAMES, f)
             ok, im = cap.read()
@@ -80,20 +81,27 @@ def rims_at(c, frames_needed):
     return cache
 
 
-def passes(c, r_hand=0.2, hold=3, sep=0.3, max_air=1.5, shot_win=0.5, refine_release=True, rim_excl=2.5, rel_v=0.25,
-           use3d=False, rim3d=False, body_h=2.8, body_r=1.0, tiebreak=False):
+def passes(c, **prm):
+    """批次片段 screen_<c>（output_videos/batch + stubs/ball_batch + stubs/pose_hands）→ passes_from。"""
     d = pickle.load(open(ROOT / f'output_videos/batch/screen_{c}_events.pkl', 'rb'))
     s = pickle.load(open(ROOT / f'stubs/ball_batch/screen_{c}_ball.pkl', 'rb'))['shot_sam3']
     _, _, tch = pickle.load(open(ROOT / f'stubs/ball_batch/screen_{c}_touch.pkl', 'rb'))
     pose = pickle.load(open(ROOT / f'stubs/pose_hands/screen_{c}.pkl', 'rb'))
+    return passes_from(d, s, tch, pose, ROOT / 'input_videos' / 'screen' / f'screen_{c}.mp4', f'screen_{c}', **prm)
+
+
+def passes_from(d, s, tch, pose, video, key, r_hand=0.2, hold=3, sep=0.3, max_air=1.5, shot_win=0.5, refine_release=True,
+                rim_excl=2.5, rel_v=0.25, use3d=False, rim3d=False, body_h=2.8, body_r=1.0, tiebreak=False, def_hold=1.0):
+    """events.pkl dict + shot_sam3 + touches + 手腕姿態 → 傳球 / 抄截列表（編號 = events.pkl 的編號，影格 = 原片）。
+    video = 原片（籃框偵測用），key = 快取檔名（stubs/rim_cache、cam_cache）。"""
     H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()]))
     seq = holders(pose, tch, H, r_hand)
     idmap = map_ids(s, d['player_tracks'])
     cams, fps_c = None, None
     if use3d or rim3d:
         import camera_calib as CC
-        if (ROOT / 'stubs' / 'court_kp' / f'screen_{c}.pkl').exists():   # 沒有球場關鍵點的片段 → 退回 2D
-            cams = CC.clip_cams(f'screen_{c}')
+        if (ROOT / 'stubs' / 'court_kp' / f'{key}.pkl').exists():   # 沒有球場關鍵點的片段 → 退回 2D
+            cams = CC.clip_cams(key)
         fps_c = s['orig_fps']
 
     def cam_at(i):
@@ -143,10 +151,19 @@ def passes(c, r_hand=0.2, hold=3, sep=0.3, max_air=1.5, shot_win=0.5, refine_rel
     major = [g for g in segs if g[2] - g[1] + 1 >= hold]
     team = clip_teams(d['player_assignment'])
     fi, fps = s['frame_idx'], s['orig_fps']
+    # 防守者「拿球」< def_hold 秒 = 貼身防守時手腕剛好靠近球（2026-11-06 抽查 4/4 假抄截都是這種），當雜訊拿掉 —— 真抄截防守者會一直拿著
+    if def_hold:
+        is_def = lambda q: team.get(idmap.get(q, q)) == 2
+        major = [g for g in major if not is_def(g[0]) or (fi[g[2]] - fi[g[1]]) / fps >= def_hold]
+    cuts = d.get('cuts') or []
     out = []
     for (A, a1, b1), (B, a2, b2) in zip(major, major[1:]):
         if A == B or (fi[a2] - fi[b1]) / fps > max_air:
             continue
+        if any(fi[b1] < c_ <= fi[a2] for c_ in cuts):
+            continue          # 跨鏡頭切換：兩邊的編號不是同一批人（screen_431 特寫重播 → 全場）
+        if def_hold and team.get(idmap.get(A, A)) == 2:
+            continue          # 防守者 → 進攻：防守方長時間拿球後又回到進攻方（籃板 / 換場），不是這波的傳球或抄截
         # ① 離手時間：A 的手腕常在出手前被擋住 → 持球段提早結束。之後球還在 A 框裡、而且跟著 A 一起動 → 還是 A 拿著
         if refine_release:
             def box_d(i, q):
@@ -188,7 +205,7 @@ def passes(c, r_hand=0.2, hold=3, sep=0.3, max_air=1.5, shot_win=0.5, refine_rel
                 continue
         elif rim_excl:
             air = list(range(b1, a2 + 1))
-            rc = rims_at(c, [fi[i] for i in air])
+            rc = rims_at(key, [fi[i] for i in air], video)
             near_rim = False
             for i in air:
                 rb, cc = rc.get(fi[i]), tch[i][1]
@@ -258,8 +275,40 @@ def check_sheet(clips, out_csv, r_hand=0.2, hold=3):
     print(f'{len(rows)} 個傳球 → {out_csv}')
 
 
+def annotate(events_pkl, ball_pkl, touch_pkl, pose_pkl, video):
+    """單支影片：把傳球寫進 events.pkl 的 'passes'（給 tactics_tools / tactics_agent / 動態板）。
+    格式同 possession_sam3.detect_passes：[{kind: pass / turnover, frm, to, release, catch}]，編號 = events.pkl 的編號、影格 = 原片。"""
+    d = pickle.load(open(events_pkl, 'rb'))
+    s = pickle.load(open(ball_pkl, 'rb'))
+    s = s.get('shot_sam3', s)
+    _, _, tch = pickle.load(open(touch_pkl, 'rb'))
+    pose = pickle.load(open(pose_pkl, 'rb'))
+    ps, _ = passes_from(d, s, tch, pose, video, Path(events_pkl).stem.replace('_events', ''))
+    d['passes'] = ps
+    d['passes_source'] = 'pose_wrist'
+    pickle.dump(d, open(events_pkl, 'wb'))
+    print(f"傳球 {sum(p['kind'] == 'pass' for p in ps)}、抄截 / 換隊 {sum(p['kind'] == 'turnover' for p in ps)} → {events_pkl}")
+    for p in ps:
+        print(f"  {p['kind']} #{p['frm']}→#{p['to']}  f{p['release']}→f{p['catch']}")
+    return ps
+
+
 if __name__ == '__main__':
-    if sys.argv[1:2] == ['sheet']:            # python pose_pass.py sheet 47 166
+    if sys.argv[1:2] == ['add_batch']:      # python pose_pass.py add_batch → output_videos/batch 裡有姿態 + 碰球的片段全部寫入
+        import contextlib, io
+        n = 0
+        for pk in sorted((ROOT / 'stubs' / 'pose_hands').glob('screen_*.pkl'), key=lambda x: int(x.stem.split('_')[1])):
+            name = pk.stem
+            ev, bp, tp = (ROOT / 'output_videos' / 'batch' / f'{name}_events.pkl', ROOT / 'stubs' / 'ball_batch' / f'{name}_ball.pkl',
+                          ROOT / 'stubs' / 'ball_batch' / f'{name}_touch.pkl')
+            if all(x.exists() for x in (ev, bp, tp)):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    annotate(ev, bp, tp, pk, ROOT / 'input_videos' / 'screen' / f'{name}.mp4')
+                n += 1
+        print(f'{n} 支片段寫入 passes')
+    elif sys.argv[1:2] == ['add']:            # python pose_pass.py add <events.pkl> <ball.pkl> <touch.pkl> <pose.pkl> <video>
+        annotate(*sys.argv[2:7])
+    elif sys.argv[1:2] == ['sheet']:            # python pose_pass.py sheet 47 166
         a, b = int(sys.argv[2]), int(sys.argv[3])
         check_sheet(range(a, b + 1), ROOT / 'output_videos' / 'framenum_boxes' / 'pass_check_pose.csv')
     else:

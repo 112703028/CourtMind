@@ -298,6 +298,9 @@ def main():
         passes = PS.detect_passes(path, fps, PS.clip_teams(data['player_assignment']), data.get('shots'))
         print(f"  SAM3 追球 + Viterbi：傳球 {sum(p['kind'] == 'pass' for p in passes)}、手遞手 {sum(p['kind'] == 'handoff' for p in passes)}、"
               f"抄截 {sum(p['kind'] == 'turnover' for p in passes)}")
+    elif data.get('passes') is not None:                     # run_pipeline 第 3 步寫進 events.pkl 的手腕版傳球
+        passes = data['passes']
+        print(f"  手腕傳球偵測：傳球 {sum(p['kind'] == 'pass' for p in passes)}、抄截 {sum(p['kind'] == 'turnover' for p in passes)}")
     render(data, frames, p, fps, tracks, passes)
     print(f'→ {p}')
 

@@ -1261,6 +1261,36 @@ def screen_outcome(data, screen_frame, handler_id, screener_id, handler_team, ba
     return {"shot": False, "note": f"擋拆後 {max_s:.0f} 秒內沒有偵測到出手"}
 
 
+def screen_passes(data, screen_frame, handler_id, screener_id, basket, max_s=6.0):
+    """擋拆之後這波的傳球（passes 來自 pose_pass.annotate：手腕找持球者 → 傳球，準確 ~7-8 成、會漏 ~4 成）。
+    同一段鏡頭、擋拆前 0.3 秒 ~ 之後 max_s 秒內，到第一次出手 / 抄截 / 下一次擋拆為止的進攻方傳球，依時間排。
+    回 None = 沒有傳球資料（舊 pkl / 沒跑傳球偵測）。"""
+    ps = data.get('passes')
+    if ps is None:
+        return None
+    fps = data.get('fps', 30.0)
+    cuts = data.get('cuts') or []
+    seg_end = next((c for c in cuts if c > screen_frame), len(data['court_coords']))
+    lo, hi = screen_frame - int(0.3 * fps), min(seg_end, screen_frame + int(max_s * fps))
+    stop = min([sh['release_frame'] for sh in data.get('shots') or [] if lo <= sh['release_frame'] < hi] + [hi])
+    # 下一次擋拆之後的傳球算下一次的（ScreenNet 事件峰值；同一次擋的峰值和接觸幀差不到 1 秒）
+    stop = min([e['peak_frame'] for e in data.get('events') or [] if e['peak_frame'] > screen_frame + fps] + [stop])
+    out = []
+    for p in sorted(ps, key=lambda x: x['release']):
+        if not (lo <= p['release'] < stop):
+            continue
+        if p['kind'] != 'pass':
+            out.append({"kind": "turnover", "seconds_after_screen": round((p['release'] - screen_frame) / fps, 1),
+                        "from": p['frm'], "to": p['to']})
+            break
+        pos = get_pos(data['court_coords'], p['to'], p['catch'])
+        role = lambda q: "持球者" if q == handler_id else ("掩護者" if q == screener_id else "其他進攻球員")
+        out.append({"kind": "pass", "seconds_after_screen": round((p['release'] - screen_frame) / fps, 1),
+                    "from": p['frm'], "from_role": role(p['frm']), "to": p['to'], "to_role": role(p['to']),
+                    "to_zone": classify_region(pos, basket) if pos else "未知"})
+    return out
+
+
 def analyze_screen_instance(inst, data, handler_team, basket):
     """對一個擋拆實例算 region / roll-pop / coverage。"""
     cc = data['court_coords']
@@ -1285,6 +1315,7 @@ def analyze_screen_instance(inst, data, handler_team, basket):
         "coverage_confidence": cov['confidence'],
         "coverage_detail": cov['detail'],
         "outcome": screen_outcome(data, sf, H, sid, handler_team, basket),
+        "passes_after": screen_passes(data, sf, H, sid, basket),
     }
 
 
@@ -1328,6 +1359,9 @@ def main():
                                       data['events'], contact_thr=args.contact_thr)
     groups = group_screen_events(instances, time_gap=args.time_gap, cuts=data.get('cuts'))
 
+    if data.get('passes') is not None:
+        np_ = sum(p['kind'] == 'pass' for p in data['passes'])
+        print(f"傳球偵測（手腕）：整段 {np_} 次傳球、{len(data['passes']) - np_} 次換隊")
     print(f"原始 {len(data['events'])} 事件 → {len(instances)} 次擋 → {len(groups)} 個擋拆事件  "
           f"(de-flicker {nflip}幀, ID-merge {pairs}, thr={args.contact_thr}ft, fps={fps:.1f})\n")
 
@@ -1347,7 +1381,13 @@ def main():
             print(f"        {fa['region']} | {action_zh.get(fa['action'])}"
                   f"({fa['action_delta_ft']:+.1f}ft) | 防守={fa['coverage']}"
                   f"[{fa['coverage_confidence']}]")
-        oc = analyze_screen_instance(g[-1], data, handler_team, basket)['outcome']   # 最後一次擋之後的結果
+        last = analyze_screen_instance(g[-1], data, handler_team, basket)   # 最後一次擋之後的傳球 / 結果
+        for pp in last['passes_after'] or []:
+            if pp['kind'] == 'pass':
+                print(f"  傳球：{pp['seconds_after_screen']} 秒後 #{pp['from']}（{pp['from_role']}）→ #{pp['to']}（{pp['to_role']}，{pp['to_zone']}）")
+            else:
+                print(f"  失誤：{pp['seconds_after_screen']} 秒後 #{pp['from']} 的球被 #{pp['to']} 拿走")
+        oc = last['outcome']
         if oc is not None:
             if oc.get('shot'):
                 made = {True: '進', False: '沒進', None: '進沒進看不出來'}[oc['made']] + f"（{oc['made_source']}）"

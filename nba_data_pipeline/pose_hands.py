@@ -8,6 +8,7 @@ pose_hands.py — 10fps 每個球員的姿態（找手腕，給持球者 / 傳�
 輸出：stubs/pose_hands/<片段>.pkl：list（每張 10fps）{pid: (17, 3) 陣列 x, y, 信心}
 
 用法（pod，有 GPU）：python nba_data_pipeline/pose_hands.py --clips 26-46
+     單支：python nba_data_pipeline/pose_hands.py --ball_pkl <sam3.pkl> --video <影片> --out <pose.pkl>
 """
 import sys
 import pickle
@@ -77,7 +78,17 @@ def main():
     ap.add_argument('--clips', default='26-46', help='例 26-46 或 26,30,41')
     ap.add_argument('--ball_dir', default=str(ROOT / 'stubs' / 'ball_batch'))
     ap.add_argument('--model', default='yolo11x-pose.pt')
+    ap.add_argument('--ball_pkl', help='單支影片模式：run_sam3_tracks --ball / --ball_only 的 pkl（配 --video、--out）')
+    ap.add_argument('--video')
+    ap.add_argument('--out')
     args = ap.parse_args()
+    if args.ball_pkl:
+        s = pickle.load(open(args.ball_pkl, 'rb'))['shot_sam3']
+        res = clip_pose(YOLO(args.model), args.video, s)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        pickle.dump(res, open(args.out, 'wb'))
+        print(f'{len(res)} 張、平均每張 {np.mean([len(r) for r in res]):.1f} 人有骨架 → {args.out}')
+        return
     if '-' in args.clips:
         a, b = map(int, args.clips.split('-')); clips = list(range(a, b + 1))
     else:

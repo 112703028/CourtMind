@@ -122,7 +122,7 @@ def t_list_screens(ctx):
     inst = find_screen_instances(ctx['cc'], ctx['pa'], ctx['events'])
     groups = group_screen_events(inst, cuts=ctx.get('cuts'))
     data_like = {'court_coords': ctx['cc'], 'player_assignment': ctx['pa'], 'fps': ctx['fps'],
-                 'shots': ctx.get('shots'), 'cuts': ctx.get('cuts')}
+                 'shots': ctx.get('shots'), 'cuts': ctx.get('cuts'), 'passes': ctx.get('passes'), 'events': ctx['events']}
     out = []
     for i, g in enumerate(groups, 1):
         screens = []
@@ -140,13 +140,16 @@ def t_list_screens(ctx):
             ptype = "double (雙擋，兩人幾乎同時擋)"
         else:
             ptype = "staggered (連續擋，兩人先後接力擋)"
+        last = analyze_screen_instance(g[-1], data_like, ctx['handler_team'], ctx['basket'])
         out.append({"event": i,
                     "time_s": round(min(frames) / ctx['fps'], 1),
                     "camera_segment": segment_of(min(frames), ctx.get('cuts')) + 1,   # 鏡頭切換後 = 可能是另一球
                     "handler": g[0]['handler_id'],   # 持球者，避免 LLM 亂猜
                     "play_type": ptype, "n_screens": len(g), "screens": screens,
                     # 這波擋拆之後的出手結果（投籃偵測）；None = 沒有投籃資料
-                    "outcome": analyze_screen_instance(g[-1], data_like, ctx['handler_team'], ctx['basket'])['outcome']})
+                    "outcome": last['outcome'],
+                    # 擋拆後到出手 / 下一次擋拆前的傳球（手腕偵測）；None = 沒有傳球資料
+                    "passes_after": last['passes_after']})
     return out
 
 
@@ -236,7 +239,7 @@ TOOLS = [
     # ── 精確判斷工具（精確的戰術判斷用這些，不要自己看軌跡猜）──
     {"type": "function", "function": {
         "name": "list_screens",
-        "description": "列出這球所有偵測到的擋拆事件，每個含掩護者、擋的防守者、roll/pop、防守方式(coverage)、位置，以及擋拆後的出手結果(outcome)。開場先用這個掌握全局。",
+        "description": "列出這球所有偵測到的擋拆事件，每個含掩護者、擋的防守者、roll/pop、防守方式(coverage)、位置、擋拆後的傳球(passes_after)，以及出手結果(outcome)。開場先用這個掌握全局。",
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
@@ -309,6 +312,13 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
   - 不要把欄位名稱（made=True、shot_dist_ft 之類）寫進解說，用自然的話說。
   - shot=False / None：照 note 說（球權已換 / 沒出手 / 鏡頭切走沒拍到）；outcome 是 None 就完全不要提出手結果。
 
+擋拆後的傳球（list_screens 每個事件的 passes_after，手腕偵測算好的事實）：
+  - 依時間排：誰（from_role）傳給誰（to_role 持球者 / 掩護者 / 其他進攻球員）、擋拆後幾秒、接球位置（to_zone）。
+    傳給掩護者 = 擋拆後找順下 / 外拉的掩護者；傳給其他進攻球員 = 擋拆吸引防守後轉移球。用來串起「擋拆 → 傳球 → 出手」。
+  - kind=turnover：球被對方拿走（抄截 / 失誤）。
+  - 傳球偵測列出來的大多是對的（約 7~8 成），但會漏掉約 4 成：沒列出傳球不代表沒傳，不要說「沒有傳球」「持球者一路自己打」，
+    出手者不是持球者又沒有傳球紀錄時，說「球轉到 #X 手上」即可。passes_after 是 None 就完全不要提傳球。
+
 鏡頭段落（camera_segment）：
   - 影片常是精華剪輯，鏡頭切換後通常是「下一球」甚至另一場比賽，不是同一回合。
   - camera_segment 不同的擋拆要分開講（「下一個片段」「接著另一個回合」），不要串成同一波戰術（例如「第二波」「再發動」）、
@@ -376,7 +386,7 @@ def build_ctx(data, frame_hint=None, handler=None):
     basket = infer_target_basket(cc, s, e)
     return {'cc': cc, 'pa': pa, 'basket': basket, 'handler_team': 1,
             'fps': data.get('fps', 30.0), 'events': events, 'handler': handler,
-            'shots': data.get('shots'), 'cuts': data.get('cuts')}
+            'shots': data.get('shots'), 'cuts': data.get('cuts'), 'passes': data.get('passes')}
 
 
 def main():
