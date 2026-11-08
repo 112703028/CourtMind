@@ -91,7 +91,7 @@ def passes(c, **prm):
 
 
 def passes_from(d, s, tch, pose, video, key, r_hand=0.2, hold=3, sep=0.3, max_air=1.5, shot_win=0.5, refine_release=True,
-                rim_excl=2.5, rel_v=0.25, use3d=False, rim3d=False, body_h=2.8, body_r=1.0, tiebreak=False, def_hold=1.0):
+                rim_excl=2.5, rel_v=0.25, use3d=False, rim3d=False, body_h=2.8, body_r=1.0, tiebreak=False, def_hold=1.0, min_ft=6.0, pingpong=1.5, screen_win=0.6, shot_mode='none', use_cuts=True):
     """events.pkl dict + shot_sam3 + touches + 手腕姿態 → 傳球 / 抄截列表（編號 = events.pkl 的編號，影格 = 原片）。
     video = 原片（籃框偵測用），key = 快取檔名（stubs/rim_cache、cam_cache）。"""
     H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()]))
@@ -155,7 +155,7 @@ def passes_from(d, s, tch, pose, video, key, r_hand=0.2, hold=3, sep=0.3, max_ai
     if def_hold:
         is_def = lambda q: team.get(idmap.get(q, q)) == 2
         major = [g for g in major if not is_def(g[0]) or (fi[g[2]] - fi[g[1]]) / fps >= def_hold]
-    cuts = d.get('cuts') or []
+    cuts = (d.get('cuts') or []) if use_cuts else []
     out = []
     for (A, a1, b1), (B, a2, b2) in zip(major, major[1:]):
         if A == B or (fi[a2] - fi[b1]) / fps > max_air:
@@ -187,7 +187,9 @@ def passes_from(d, s, tch, pose, video, key, r_hand=0.2, hold=3, sep=0.3, max_ai
         if dB is not None and dB < sep:
             continue
         rel, cat = fi[b1], fi[a2]
-        if any(rel - 0.2 * fps <= sh['release_frame'] <= cat - 0.1 * fps for sh in d.get('shots') or []):
+        shots_ = [sh for sh in d.get('shots') or [] if shot_mode == 'all' or (shot_mode == 'strong' and sh['strong'])
+                  or (shot_mode == 'kind' and sh['kind'] != 'unknown')]
+        if any(rel - 0.2 * fps <= sh['release_frame'] <= cat - 0.1 * fps for sh in shots_):
             continue          # 球在空中那段（A 離手 → B 接球）有人出手 = 投籃；B 接到才出手 = 接球就投，照算傳球（screen_46）
         # ② 球在空中時靠近籃框（≤ rim_excl 倍籃框寬）= 投籃 / 籃板，不是傳球（原片段推論沒開投籃偵測，screen_140 / 162 搶籃板）
         if rim3d:     # 3D：空中那段球的射線經過籃框位置時 ≥ 2.4 m、水平 ≤ 1.5 m = 球真的在籃框附近（投籃 / 籃板）
@@ -216,8 +218,40 @@ def passes_from(d, s, tch, pose, video, key, r_hand=0.2, hold=3, sep=0.3, max_ai
             if near_rim:
                 continue
         a, b = idmap.get(A, A), idmap.get(B, B)
+        if a == b:
+            continue          # 兩個 SAM3 編號對到同一個推論編號 = 同一人被追成兩個（screen_383）
         same = team.get(a) is not None and team.get(a) == team.get(b)
-        out.append(dict(kind='pass' if same else 'turnover', frm=a, to=b, release=rel, catch=cat))
+        def ctr(i, q):
+            bb = s['players'][i].get(q) if i < len(s['players']) else None
+            return None if bb is None else np.array([(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2])
+        pa_, pb_ = ctr(a2, A), ctr(a2, B)
+        ft = None                                     # 接球時兩人球場距離（呎；畫面距離受透視影響，遠端的人看起來比較近）
+        cc = d['court_coords']
+        for k in range(8):
+            for ff in (cat + k, cat - k):
+                if ft is None and 0 <= ff < len(cc) and a in cc[ff] and b in cc[ff]:
+                    ft = round(float(np.hypot(cc[ff][a][0] - cc[ff][b][0], cc[ff][a][1] - cc[ff][b][1])), 1)
+        out.append(dict(kind='pass' if same else 'turnover', frm=a, to=b, release=rel, catch=cat,
+                        gap=None if pa_ is None or pb_ is None else round(float(np.hypot(*(pa_ - pb_))) / H, 2),   # 接球時兩人距離（身高）
+                        ft=ft, b_hold=round((fi[b2] - fi[a2]) / fps, 2)))
+    # 2026-11-07 原片段檢查表（335 支 38 個，37% 對）錯最多的是掩護 / 貼身防守 / 分隊錯的防守者：兩人貼在一起時手腕距離互換
+    # ① 接球時兩人球場距離 < min_ft 呎（真傳球球會飛一段；這麼近的是掩護、防守者、手遞手）。
+    #    用畫面距離（身高）會誤殺遠端的真傳球：21 個真傳球 13 → 8；球場距離 6 呎 → 13 個都留著
+    if min_ft:
+        out = [p for p in out if p['ft'] is None or p['ft'] >= min_ft]
+    # ② 同一對人的擋拆撞上前後 screen_win 秒內的「傳球」= 掩護時兩人貼著、手腕互換（真的傳給掩護者多在撞上後 1 秒以上，
+    #    順下 / 外拉之後）。兩張檢查表：假的拿掉 8、真的誤殺 5；21 個真傳球都在撞上後 0.7 秒以上，不受影響
+    if screen_win:
+        out = [p for p in out if not any({e['handler_id'], e['screener_id']} == {p['frm'], p['to']}
+                                         and abs(e['peak_frame'] - p['release']) <= screen_win * fps for e in d.get('events') or [])]
+    # ③ pingpong 秒內 A→B 又 B→A（來回）= 兩人貼著互換，兩筆都不算
+    if pingpong:
+        bad = set()
+        for i, p in enumerate(out):
+            for j, q in enumerate(out):
+                if i < j and p['frm'] == q['to'] and p['to'] == q['frm'] and (q['release'] - p['catch']) / fps <= pingpong:
+                    bad |= {i, j}
+        out = [p for i, p in enumerate(out) if i not in bad]
     return out, d['fps']
 
 
