@@ -174,11 +174,42 @@ def score(tag='v1'):
         print(f'{item:14s} {c["t"]:3d} / {n:3d}   {c["t"] / n:.0%}' + (f'   ?{c["?"]}' if c['?'] else '') if n else f'{item:14s} —')
 
 
+def carry(old_tag, new_tag):
+    """新版檢查表沿用舊版標記：同片段 / 事件 / 時間 / 項目、系統說法一樣 → 抄舊的對錯和備註；不一樣的留空給人看（備註寫 v1 說什麼）。
+    整支的「漏掉的擋拆」「解說」：漏掉的擋拆看事件數有沒有變；解說一律重看（文字每次都不同）。"""
+    old = {tuple(r[1:6]): r for r in list(csv.reader(open(OUT / f'check_{old_tag}.csv', encoding='utf-8-sig')))[1:]}
+    old_by_item = collections.defaultdict(list)
+    for k, r in old.items():
+        old_by_item[(k[0], k[1], k[3])].append(r)
+    rows = list(csv.reader(open(OUT / f'check_{new_tag}.csv', encoding='utf-8-sig')))
+    todo = []
+    for r in rows[1:]:
+        k = tuple(r[1:6])
+        if r[4] == '解說':
+            todo.append(r); continue
+        if k in old:
+            r[6], r[7] = old[k][6], old[k][7]
+        elif r[4] == '漏掉的擋拆' and old_by_item.get((r[1], r[2], r[4])):
+            r[6], r[7] = old_by_item[(r[1], r[2], r[4])][0][6:8]
+        else:
+            prev = old_by_item.get((r[1], r[2], r[4]))
+            r[7] = f'（{old_tag} 說：{prev[0][5]}，標 {prev[0][6]}；{prev[0][7]}）' if prev else f'（{old_tag} 沒有這一行）'
+            todo.append(r)
+    with open(OUT / f'check_{new_tag}.csv', 'w', newline='', encoding='utf-8-sig') as fo:
+        csv.writer(fo).writerows(rows)
+    print(f'{len(rows) - 1} 行，沿用 {old_tag} 的 {len(rows) - 1 - len(todo)} 行，要重看 {len(todo)} 行：')
+    for r in todo:
+        print('  ', r[0], r[1], r[2], r[4], '→', r[5], r[7])
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['select', 'run', 'sheet', 'video', 'score'])
+    ap.add_argument('cmd', choices=['select', 'run', 'sheet', 'video', 'score', 'carry'])
     ap.add_argument('--tag', default='v1')
+    ap.add_argument('--old', default='v1', help='carry：沿用哪一版的標記')
     a = ap.parse_args()
+    if a.cmd == 'carry':
+        carry(a.old, a.tag)
     {'select': select, 'video': video}.get(a.cmd, lambda: None)()
     if a.cmd in ('run', 'sheet', 'score'):
         {'run': run, 'sheet': sheet, 'score': score}[a.cmd](a.tag)

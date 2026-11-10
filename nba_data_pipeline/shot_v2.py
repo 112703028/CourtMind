@@ -20,12 +20,23 @@ import pose_pass as PP
 from shot_events import analyze
 
 
-def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.0, r_hand=0.2, catch_wrist=False, pos_win=1.5):
+def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.0, r_hand=0.2, catch_wrist=False, pos_win=1.5, rf_layup=False, layup_hits=2, min_cnt=3, touch_filter=False, far=0.5):
     def cand(s, tch, rf, rng):
         fps = s['fps']; n = len(tch)
         lo = next((i for i, f in enumerate(s['frame_idx']) if f >= rng[0]), 0)
         hi = next((i for i, f in enumerate(s['frame_idx']) if f >= rng[1]), n)
         H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()])) if s['players'] else 150.0
+        if touch_filter and pose is not None:
+            # ④ 球飛過別人時遮罩重疊算成「碰到」→ 空中段被切斷（screen_117：#3 跳投，球飛向籃框時一直疊在 #0 身上）。
+            # 只在骨架清楚顯示這個人兩隻手腕都離球很遠（> far 倍身高）時才當沒碰到；骨架抓不到就照舊相信遮罩
+            #（手腕判出手者會失敗就是因為出手時手腕常被擋）
+            tch = list(tch)
+            for i, (q, cen) in enumerate(tch):
+                if q is None or cen is None or i >= len(pose) or q not in pose[i]:
+                    continue
+                dd = PP.hand_dist(pose[i][q], cen, H)
+                if dd is not None and dd > far:
+                    tch[i] = (None, cen)
         whold = None
         if (wrist or catch_wrist) and pose is not None:
             hs = PP.smooth_flicker(PP.holders(pose, tch, H, r_hand))
@@ -47,7 +58,7 @@ def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.
                     continue
             else:
                 pid, cnt = so.possessor(tch, r, fps, win=pos_win)
-                if pid is None or cnt < min(3, max(2, int(pos_win * fps * 0.6))):
+                if pid is None or cnt < min(min_cnt, max(2, int(pos_win * fps * 0.6)) if min_cnt >= 2 else min_cnt):
                     continue
             h = so.player_h(s, r, pid) or 150
             amp = so.flight(s, hold, r) / h
@@ -74,6 +85,24 @@ def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.
             ev, _, _ = analyze(None, rf, cuts, rng=rng)            # 弱候選要 Roboflow 判跳投 / 上籃
             shots = [c for c in cands if any(-0.6 <= e['t'] - c['release'] <= 1.2 for e in ev)]
             shots = [max(shots, key=lambda c: c['amp'])] if shots else []
+        if rf_layup:
+            # ⑤ 上籃 / 灌籃沒有空中段：Roboflow 連續偵測到上籃姿勢（框裡的人手上有球）→ 補一次出手，出手者 = 框跟誰的框最重疊
+            ev, _, _ = analyze(None, rf, cuts, rng=rng)
+            for e in ev:
+                if e['kind'] != 'layup' or not e['with_ball'] or e['hits'] < layup_hits:
+                    continue
+                if any(abs(c['release'] - e['t']) <= 1.5 for c in shots):
+                    continue
+                i = min(range(n), key=lambda i: abs(s['frame_idx'][i] - e['frame']))
+                bx = e['box']
+                def iou(b):
+                    ix = max(0, min(b[2], bx[2]) - max(b[0], bx[0])); iy = max(0, min(b[3], bx[3]) - max(b[1], bx[1]))
+                    u = (b[2] - b[0]) * (b[3] - b[1]) + (bx[2] - bx[0]) * (bx[3] - bx[1]) - ix * iy
+                    return ix * iy / u if u > 0 else 0
+                best = max(s['players'][i].items(), key=lambda kv: iou(kv[1]), default=None)
+                if best is None or iou(best[1]) < 0.3:
+                    continue
+                shots.append(dict(shooter=best[0], release=e['t'], amp=0.0, rim=None, top=False, strong=True, layup_rf=True))
         out = []
         for c in sorted(shots, key=lambda c: c['release']):
             if not out or c['release'] - out[-1]['release'] > 1.0:
