@@ -16,7 +16,8 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ROOT = HERE.parent
 sys.path[:0] = [str(HERE), str(ROOT)]
-OUT = ROOT / 'stubs' / 'shots_batch'
+OUT = ROOT / 'stubs' / 'shots_batch_v2'          # 2026-11-10 第 2 版投籃規則（shot_v2）；第 1 版在 stubs/shots_batch
+RF_CACHE = ROOT / 'stubs' / 'rf_cache'           # Roboflow 每張偵測存檔（shot_eval.py 同一份），改規則可以本地重算
 
 
 def run(first=()):
@@ -34,7 +35,13 @@ def run(first=()):
         s = pickle.load(open(bp, 'rb'))['shot_sam3']
         d = pickle.load(open(ev, 'rb'))
         frames = read_video(str(ROOT / 'input_videos' / 'screen' / f'{name}.mp4'))
-        rf = run_rf(frames, s['orig_fps'])
+        rp = RF_CACHE / f'batch_{name}.pkl'
+        if rp.exists():
+            rf = pickle.load(open(rp, 'rb'))
+        else:
+            rf = run_rf(frames, s['orig_fps'])
+            RF_CACHE.mkdir(parents=True, exist_ok=True)
+            pickle.dump(rf, open(rp, 'wb'))
         shots, cuts = detect_shots(s, frames, rf, d['player_tracks'], grid_prefix=str(ROOT / 'output_videos' / 'batch' / name))
         pickle.dump((shots, cuts), open(o, 'wb'))
         print(f'{name}：出手 {len(shots)}、鏡頭切點 {cuts}', flush=True)

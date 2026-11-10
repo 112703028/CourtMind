@@ -53,11 +53,12 @@ def _rim_at(rf, f):
     return None
 
 
-def made_grid(s, tch, frames, rf, release, out_path):
-    """球最接近籃框那刻前後 12 張、以籃框為中心放大（籃框寬 ±1.8 倍、上 1.5 下 2.2 倍）→ 3×4 圖存檔。"""
+def made_grid(s, tch, frames, rf, release, out_path, win=2.5):
+    """球最接近籃框那刻前後 12 張、以籃框為中心放大（籃框寬 ±1.8 倍、上 1.5 下 2.2 倍）→ 3×4 圖存檔。
+    win = 離手後幾秒內找「球最接近籃框」：判斷是不是投籃要短（1.5），不然假候選會拍到後面那次真投籃（screen_79）。"""
     import cv2
     fps_s, fps_o = s['fps'], s['orig_fps']
-    r0 = int(round(release * fps_s)); end = min(len(tch), r0 + int(2.5 * fps_s))
+    r0 = int(round(release * fps_s)); end = min(len(tch), r0 + int(win * fps_s))
     best = None
     for i in range(r0, end):
         c, rim = tch[i][1], _rim_at(rf, s['frame_idx'][i])
@@ -67,7 +68,7 @@ def made_grid(s, tch, frames, rf, release, out_path):
         d = np.hypot(c[0] - (rim[0] + rim[2]) / 2, c[1] - (rim[1] + rim[3]) / 2) / w
         if best is None or d < best[0]:
             best = (d, s['frame_idx'][i])
-    fk = best[1] if best and best[0] < 3 else int((release + 1.0) * fps_o)      # 球沒追到籃框附近 → 出手後 1 秒
+    fk = best[1] if best and best[0] < 3 else int((release + min(1.0, win / 2)) * fps_o)   # 球沒追到籃框附近 → 出手後 1 秒
     tiles = []
     for t in GRID_TIMES:
         fo = min(len(frames) - 1, max(0, int(fk + t * fps_o)))
@@ -82,19 +83,32 @@ def made_grid(s, tch, frames, rf, release, out_path):
     cv2.imwrite(str(out_path), np.vstack([np.hstack(tiles[k:k + 4]) for k in (0, 4, 8)]), [cv2.IMWRITE_JPEG_QUALITY, 88])
 
 
-def vlm_made(img_path, client, cache_path=None):
-    """→ {'made': True/False/None, 'confidence', 'reason'}；同一張圖讀快取（stubs/vlm_made_cache.jsonl）。"""
+VLM_SYSTEM_SHOT = ('你是籃球比賽影像判讀員。給你一張由 12 格組成的圖：同一次「疑似投籃」、籃框附近的放大連續截圖，'
+                   '時間由左到右、由上到下（每格左上角有秒數）。'
+                   '第一題：這是不是一次投籃？投籃＝球離開球員的手、朝籃框飛去（打框、進網、沒碰框、被蓋火鍋都算），'
+                   '或球員把球帶到籃框放進去 / 灌進去（上籃、灌籃）。不是投籃＝球一直在球員手上（運球、持球、做假動作沒出手）、'
+                   '球被傳給隊友（包括高吊傳球在籃框附近被接住）、或球只是從籃框前面或下面經過、沒有往籃框飛。'
+                   '注意轉播是側面高角度：籃框下方站著的人、經過的球看起來都會貼著籃框，要看球是不是真的往籃框上方飛、碰到籃框或籃網。'
+                   '第二題：是投籃的話，有沒有進？進＝球從籃框上方穿過籃框、往下穿過籃網（籃網常被往下拉）；'
+                   '沒進＝球打框彈出、在框上轉出、沒碰框、被蓋火鍋。不是投籃就回 null。'
+                   '看不清楚就回 null，不要猜。只輸出 JSON：'
+                   '{"shot": true/false/null, "made": true/false/null, "confidence": "high"|"medium"|"low", "reason": "一句話"}')
+
+
+def vlm_made(img_path, client, cache_path=None, system=None, ask='這次投籃有沒有進？只輸出 JSON。'):
+    """→ {'made': True/False/None, 'confidence', 'reason'}（system=VLM_SYSTEM_SHOT 時多 'shot'）；同一張圖 + 題目讀快取。"""
     import base64, hashlib, json
+    system = system or VLM_SYSTEM
     data = open(img_path, 'rb').read()
-    h = hashlib.md5((VLM_SYSTEM + VLM_MODEL).encode() + data).hexdigest()
+    h = hashlib.md5((system + VLM_MODEL).encode() + data).hexdigest()
     cache_path = Path(cache_path or ROOT / 'stubs' / 'vlm_made_cache_infer.jsonl')
     if cache_path.exists():
         for line in open(cache_path, encoding='utf-8'):
             j = json.loads(line)
             if j['h'] == h:
                 return j['resp']
-    msgs = [{'role': 'system', 'content': VLM_SYSTEM},
-            {'role': 'user', 'content': [{'type': 'text', 'text': '這次投籃有沒有進？只輸出 JSON。'},
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': [{'type': 'text', 'text': ask},
                                          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(data).decode(),
                                                                              'detail': 'high'}}]}]
     r = client.chat.completions.create(model=VLM_MODEL, reasoning_effort=VLM_EFFORT,
@@ -153,12 +167,35 @@ def map_ids(shot_sam3, player_tracks):
 
 def detect_shots(shot_sam3, frames, rf, player_tracks=None, grid_prefix=None):
     """grid_prefix：給了就為每次出手存籃框放大圖 <prefix>_shot<i>.jpg（本機 tactics 用 VLM 判進球）。"""
-    s = shot_sam3
-    shape = frames[0].shape[:2]
     cuts = find_cuts(frames)
-    bounds = [0] + cuts + [len(frames)]
-    chosen, _ = so.pick_ball(s, rf)
-    tch = so.smooth_touches(so.touches(s, shape, chosen))
+    shots, tch = detect_core(shot_sam3, rf, cuts, frames[0].shape[:2], len(frames), player_tracks)
+    if grid_prefix is not None:
+        for i, sh in enumerate(shots):
+            gp = Path(f'{grid_prefix}_shot{i}.jpg')
+            try:
+                made_grid(shot_sam3, tch, frames, rf, sh['t'], gp)
+                sh['made_grid'] = gp.name                        # 跟 events.pkl 同資料夾
+            except Exception as e:
+                print(f'  [籃框圖存檔失敗] {e}')
+    return shots, cuts
+
+
+def ball_touches(shot_sam3, rf, shape):
+    """選球 + 每張碰球的人（解遮罩，最慢的一步；shot_eval.py 存檔重用）。"""
+    chosen, _ = so.pick_ball(shot_sam3, rf)
+    return so.smooth_touches(so.touches(shot_sam3, shape, chosen))
+
+
+def detect_core(shot_sam3, rf, cuts, shape, n_frames, player_tracks=None, tch=None, cand_fn=None):
+    """detect_shots 不需要畫面的部分（shot_eval.py 用存好的 Roboflow 結果 + 切點 + 碰球重算）→ (shots, touches)。"""
+    s = shot_sam3
+    bounds = [0] + list(cuts) + [n_frames]
+    tch = tch if tch is not None else ball_touches(s, rf, shape)
+    if cand_fn is None:
+        # 2026-11-10 換成第 2 版候選（shot_v2.py）：仲裁（1 秒內被別人接住、接住前球沒到籃框 = 傳球）+ 拿掉保底
+        # （弱候選要 Roboflow 跳投 / 上籃）。真傳球被當投籃 13/56 → 1/56、延長 63 支全對 41 → 47、抽查 30 支假投籃 11 → 9、抓到率不變
+        from shot_v2 import make_cand_fn
+        cand_fn = make_cand_fn(None, cuts)
     fps_o = s['orig_fps']
     idmap = map_ids(s, player_tracks) if player_tracks is not None else {}
     shots = []
@@ -166,7 +203,7 @@ def detect_shots(shot_sam3, frames, rf, player_tracks=None, grid_prefix=None):
         if b - a < fps_o * 1.0:                         # 太短的鏡頭（轉場 / 重播片頭）不看
             continue
         rf_events, _, _ = analyze(None, rf, cuts, rng=(a, b))      # Roboflow：跳投 / 上籃候選、進球
-        for c in so.shot_candidates(s, tch, rf, (a, b)):
+        for c in cand_fn(s, tch, rf, (a, b)):
             near = [e for e in rf_events if -0.6 <= e['t'] - c['release'] <= 1.2]
             e = min(near, key=lambda e: abs(e['t'] - c['release'])) if near else None
             made = any(x['made'] and -0.6 <= x['t'] - c['release'] <= 2.0 for x in rf_events)
@@ -177,11 +214,4 @@ def detect_shots(shot_sam3, frames, rf, player_tracks=None, grid_prefix=None):
                               kind=e['kind'] if e else 'unknown',
                               made=True if made else (False if saw_rim_area else None),
                               strong=c['strong'], amp=c['amp'], rim=c['rim'], segment=seg))
-            if grid_prefix is not None:
-                gp = Path(f'{grid_prefix}_shot{len(shots) - 1}.jpg')
-                try:
-                    made_grid(s, tch, frames, rf, c['release'], gp)
-                    shots[-1]['made_grid'] = gp.name                 # 跟 events.pkl 同資料夾
-                except Exception as e:
-                    print(f'  [籃框圖存檔失敗] {e}')
-    return shots, cuts
+    return shots, tch

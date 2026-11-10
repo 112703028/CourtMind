@@ -83,7 +83,8 @@ def main():
     ap.add_argument('--out')
     args = ap.parse_args()
     if args.ball_pkl:
-        s = pickle.load(open(args.ball_pkl, 'rb'))['shot_sam3']
+        s = pickle.load(open(args.ball_pkl, 'rb'))
+        s = s.get('shot_sam3', s)            # stubs/shot_sam3/*_shot_sam3.pkl（延長片段）本身就是 shot_sam3
         res = clip_pose(YOLO(args.model), args.video, s)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         pickle.dump(res, open(args.out, 'wb'))
