@@ -23,6 +23,19 @@ from shot_events import analyze
 def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.0, r_hand=0.2, catch_wrist=False, pos_win=1.5, rf_layup=False, layup_hits=2, min_cnt=3, touch_filter=False, far=0.5):
     def cand(s, tch, rf, rng):
         fps = s['fps']; n = len(tch)
+        k = max(1, int(round(fps / 10.0)))      # 門檻都是照 10fps 調的「張數」→ 30fps 乘 3，維持同樣秒數
+        if k > 1:
+            # 碰球只連續 < k 張（10fps 時的 1 張）、前後不是他 → 當沒碰到（同 shot_owner.smooth_touches）
+            tch = list(tch); i = 0
+            while i < n:
+                q = tch[i][0]
+                if q is None:
+                    i += 1; continue
+                j = i
+                while j < n and tch[j][0] == q: j += 1
+                if j - i < k:
+                    for m in range(i, j): tch[m] = (None, tch[m][1])
+                i = j
         lo = next((i for i, f in enumerate(s['frame_idx']) if f >= rng[0]), 0)
         hi = next((i for i, f in enumerate(s['frame_idx']) if f >= rng[1]), n)
         H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()])) if s['players'] else 150.0
@@ -45,20 +58,20 @@ def make_cand_fn(pose, cuts, wrist=False, catch=True, fallback=False, catch_s=1.
         hold = whold if (wrist and whold is not None) else tch
         chold = whold if (catch_wrist and whold is not None) else hold   # 仲裁看誰接住球用哪一種
         cands = []
-        for k, _ in so.free_runs(hold, lo, hi):
-            r = k - 1
+        for k0, _ in so.free_runs(hold, lo, hi, min_len=2 * k):
+            r = k0 - 1
             while r >= 0 and hold[r][0] is None:
                 r -= 1
             if r < lo:
                 continue
             if wrist and pose is not None:
                 pid = hold[r][0]
-                run = sum(1 for j in range(max(0, r - 5), r + 1) if hold[j][0] == pid)   # 離手前最後連續拿著
-                if run < 2:
+                run = sum(1 for j in range(max(0, r - 5 * k), r + 1) if hold[j][0] == pid)   # 離手前最後連續拿著
+                if run < 2 * k:
                     continue
             else:
                 pid, cnt = so.possessor(tch, r, fps, win=pos_win)
-                if pid is None or cnt < min(min_cnt, max(2, int(pos_win * fps * 0.6)) if min_cnt >= 2 else min_cnt):
+                if pid is None or cnt < k * (min(min_cnt, max(2, int(pos_win * 10 * 0.6))) if min_cnt >= 2 else min_cnt):
                     continue
             h = so.player_h(s, r, pid) or 150
             amp = so.flight(s, hold, r) / h

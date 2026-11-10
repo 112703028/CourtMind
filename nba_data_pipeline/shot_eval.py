@@ -21,6 +21,7 @@ HERE = Path(__file__).parent
 ROOT = HERE.parent
 sys.path[:0] = [str(HERE), str(ROOT)]
 RF_CACHE = ROOT / 'stubs' / 'rf_cache'
+E2E30 = ['screen_54', 'screen_117', 'screen_136', 'screen_441', 'screen_34']   # 端到端評估出手錯的 + 空中接力灌籃
 
 
 def clip_set(name):
@@ -29,6 +30,10 @@ def clip_set(name):
         gt = json.load(open(ROOT / 'output_videos' / 'shot_check2' / 'shot_gt.json', encoding='utf-8'))
         return [(c, ROOT / 'input_videos' / 'screen_ext' / f'{c}.mp4', ROOT / 'stubs' / 'shot_sam3' / f'{c}_shot_sam3.pkl', 'ext')
                 for c in gt]
+    if name in ('batch30', 'e2e30'):
+        # 2026-11-10 30fps 實驗：stubs/ball30/<片段>_ball.pkl（run_sam3_tracks --ball_only --ball_fps 30）
+        clips = json.load(open(ROOT / 'output_videos' / 'shot_check_batch' / 'clips.json')) if name == 'batch30' else E2E30
+        return [(c, ROOT / 'input_videos' / 'screen' / f'{c}.mp4', ROOT / 'stubs' / 'ball30' / f'{c}_ball.pkl', 'batch30') for c in clips]
     if name == 'batch':
         clips = json.load(open(ROOT / 'output_videos' / 'shot_check_batch' / 'clips.json'))
     elif name == 'pass':
@@ -43,14 +48,14 @@ def clip_set(name):
     return [(c, ROOT / 'input_videos' / 'screen' / f'{c}.mp4', ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', 'batch') for c in clips]
 
 
-def rf_cached(key, video, fps):
+def rf_cached(key, video, fps, target_fps=10):
     """Roboflow 每張偵測（shot_detect.run_rf），存檔重用。key 要分 ext / batch（同名片段影片不同）。"""
     p = RF_CACHE / f'{key}.pkl'
     if p.exists():
         return pickle.load(open(p, 'rb'))
     from utils import read_video
     from shot_detect import run_rf
-    rf = run_rf(read_video(str(video)), fps)
+    rf = run_rf(read_video(str(video)), fps, target_fps=target_fps)
     RF_CACHE.mkdir(parents=True, exist_ok=True)
     pickle.dump(rf, open(p, 'wb'))
     return rf
@@ -63,7 +68,7 @@ def cache(names):
                 continue
             s = pickle.load(open(sp, 'rb'))
             s = s.get('shot_sam3', s)
-            rf_cached(f'{src}_{c}', video, s['orig_fps'])
+            rf_cached(f'{src}_{c}', video, s['orig_fps'], target_fps=s['fps'])
             print(f'{name} {c}', flush=True)
     print('CACHE_DONE')
 
@@ -74,7 +79,7 @@ def clip_meta(c, video, src):
     p = RF_CACHE / f'{src}_{c}_meta.pkl'
     if p.exists():
         return pickle.load(open(p, 'rb'))
-    if src == 'batch':
+    if src in ('batch', 'batch30'):
         d = pickle.load(open(ROOT / 'output_videos' / 'batch' / f'{c}_events.pkl', 'rb'))
         cap = cv2.VideoCapture(str(video)); ok, im = cap.read()
         meta = (list(d.get('cuts') or []), im.shape[:2], len(d['court_coords']))
@@ -115,7 +120,7 @@ def run_detect(name, detect=None):
         s = s.get('shot_sam3', s)
         rf = pickle.load(open(RF_CACHE / f'{src}_{c}.pkl', 'rb'))
         cuts, shape, n = clip_meta(c, video, src)
-        tracks = pickle.load(open(ROOT / 'output_videos' / 'batch' / f'{c}_events.pkl', 'rb'))['player_tracks'] if src == 'batch' else None
+        tracks = pickle.load(open(ROOT / 'output_videos' / 'batch' / f'{c}_events.pkl', 'rb'))['player_tracks'] if src in ('batch', 'batch30') else None
         tch = touches_cached(f'{src}_{c}', s, rf, shape)
         out[c] = detect(s, rf, cuts, shape, n, tracks, tch, load_pose(c, src))
     return out
