@@ -134,8 +134,28 @@ def sheet(tag='v1'):
                 add(c, ev, t, f'被擋的防守者{tag_s}', f"#{s['defender']}")
                 add(c, ev, t, f'順下 / 外拉{tag_s}', ACTION.get(s['action'], s['action']))
                 add(c, ev, t, f'防守應對{tag_s}', f"{COVER.get(s['coverage'], s['coverage'])}（{s['coverage_confidence']}）")
+                if 'handler_action' in s:                    # v3 起：戰術細節
+                    ha, hp = s['handler_action'], s['help']
+                    add(c, ev, t, f'持球者怎麼用掩護{tag_s}', ha['use'] if 'direction' not in ha else f"{ha['use']}，{ha['direction']}")
+                    if 'next' in ha:
+                        add(c, ev, t, f'持球者接下來{tag_s}', ha['next'] + (f"（{ha['next_after_s']} 秒後）" if ha.get('next_after_s') is not None else ''))
+                    for key, who in (('roller', '補防順下'), ('handler', '協防持球者')):
+                        if key in hp:
+                            v = hp[key]
+                            if not isinstance(v, dict) and key == 'handler' and v == '沒人補防':
+                                v = '沒人上前協防'
+                            add(c, ev, t, f'{who}{tag_s}', f"#{v['helper']}（{v['after_s']} 秒後）" if isinstance(v, dict) else v)
+                    add(c, ev, t, f'擋拆後空檔{tag_s}', '；'.join(f"#{o['player']} {o['zone']}（{o['after_s']} 秒後，最近防守者 {o['defender_ft']} 呎）"
+                                                            for o in s['open_looks']) or '沒有大空檔')
             add(c, ev, t, '擋拆後傳球', _fmt_passes(e.get('passes_after')))
             add(c, ev, t, '出手結果', _fmt_outcome(e.get('outcome')))
+            oc = e.get('outcome') or {}
+            if oc.get('shot') and 'defense_level' in oc:
+                add(c, ev, t, '出手時的防守', f"#{oc['shooter_id']} 離最近防守者 {oc['closest_defender_ft']} 呎（{oc['defense_level']}）"
+                    if oc['closest_defender_ft'] is not None else '不明（有防守者在畫面外）')
+            for p_ in [q for q in (e.get('passes_after') or []) if q['kind'] == 'pass' and 'catch_defense_level' in q]:
+                add(c, ev, t, '接球時的防守', f"#{p_['to']} 接球時離最近防守者 {p_['catch_defender_ft']} 呎（{p_['catch_defense_level']}）"
+                    if p_['catch_defender_ft'] is not None else f"#{p_['to']}：不明")
         add(c, '整支', '', '漏掉的擋拆', '（有漏掉的請在「正確答案」寫時間 / 影格和誰幫誰擋；沒漏填 t）')
         add(c, '整支', '', '解說', f'見 narration_{tag}.md 的 {c}（t = 沒講錯；f = 備註寫哪句錯 / 編造）')
         md += [f'\n## {c}\n', (OUT / f'narration_{tag}' / f'{c}.txt').read_text(encoding='utf-8'), '\n']

@@ -131,7 +131,11 @@ def t_list_screens(ctx):
             screens.append({"screener": fa["screener_id"], "defender": fa["screened_defender"],
                             "action": fa["action"], "coverage": fa["coverage"],
                             "coverage_confidence": fa["coverage_confidence"],
-                            "region": fa["region"], "frame": fa["screen_frame"]})
+                            "region": fa["region"], "frame": fa["screen_frame"],
+                            # 規則算好的戰術細節（2026-11-11）：持球者怎麼用掩護、協防、擋拆後空檔
+                            "handler_action": fa["details"]["handler"],
+                            "help": fa["details"]["help"],
+                            "open_looks": fa["details"]["open_looks"]})
         # 結構標籤：讓 LLM 直接有正確的戰術詞，不用自己編
         frames = [it['frame'] for it in g]
         if len(g) == 1:
@@ -318,6 +322,19 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
   - kind=turnover：球被對方拿走（抄截 / 失誤）。
   - 傳球偵測列出來的大多是對的（約 7~8 成），但會漏掉約 4 成：沒列出傳球不代表沒傳，不要說「沒有傳球」「持球者一路自己打」，
     出手者不是持球者又沒有傳球紀錄時，說「球轉到 #X 手上」即可。passes_after 是 None 就完全不要提傳球。
+
+戰術細節（list_screens 每個擋的 handler_action / help / open_looks，以及 outcome / passes_after 裡的防守距離；都是規則從座標算好的事實）：
+  - 每個擋拆照這個順序講：站位與掩護（誰、哪裡）→ 持球者怎麼用掩護 → 防守怎麼應對 → 協防 → 傳球 / 空檔 / 出手。沒有的項目就跳過，不要補。
+  - handler_action.use：走掩護那一側 / 反向切（reject）/ 直直往前；direction：往籃下切（往中路 / 往底線）/ 往外退 / 原地；
+    next：擋拆後 2.5 秒內持球者做了什麼（切入後出手、急停跳投、傳給 #X、退出來重新組織、持球中）；next_after_s 是幾秒後。
+    use 是「看不到後續」或「不明」就不要講持球者怎麼用掩護。max_speed_ft_s 只在 ≥ 20（明顯加速）時可以說「加速衝」。
+  - help.roller：{"helper": X} = 弱邊 #X 補防順下的掩護者；"沒人補防" = 順下的人沒人補（可以說「順下的 #S 沒有人補防」）；
+    "沒進到籃下 12 呎內" / "不明" = 不要講協防。help.handler 同理（有人上前協防持球者）。
+  - open_looks：擋拆後在三分線外或籃下、離最近防守者 ≥ 6 呎超過 0.5 秒的進攻球員（NBA 定義的大空檔）。
+    可以說「#X 在左底角拉出空檔」；不要說「球沒傳過去」「錯失機會」——傳球偵測會漏，沒列出傳球不代表沒傳。
+  - 防守距離（NBA 分級，離最近防守者）：outcome.defense_level（出手時）、passes_after[].catch_defense_level（接球時）：
+    貼身防守 < 2 呎、有人防 2~4 呎、空檔 4~6 呎、大空檔 ≥ 6 呎。座標有 1~2 呎誤差，「空檔」那級用保留語氣（「看起來有些空間」）。
+  - 這些細節不要寫成數字報表；挑最能說明這球的 2~3 個講，用自然的轉播語氣。
 
 鏡頭段落（camera_segment）：
   - 影片常是精華剪輯，鏡頭切換後通常是「下一球」甚至另一場比賽，不是同一回合。

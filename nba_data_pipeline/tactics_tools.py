@@ -1247,7 +1247,9 @@ def screen_outcome(data, screen_frame, handler_id, screener_id, handler_team, ba
         pos = get_pos(data['court_coords'], sh['shooter'], f)
         dist = round(_dist(pos, basket), 1) if pos else None
         role = "持球者" if sh['shooter'] == handler_id else ("掩護者" if sh['shooter'] == screener_id else "其他進攻球員")
+        _, cd = closest_defender(data, court_teams(data, handler_team), handler_team, sh['shooter'], f)
         return {"shot": True, "seconds_after_screen": round((f - screen_frame) / fps, 1),
+                "closest_defender_ft": cd, "defense_level": def_label(cd),   # ⑦ 出手時離最近防守者（NBA 分級）
                 "shooter_id": sh['shooter'], "shooter_role": role,
                 "kind": KIND_ZH.get(sh['kind'], '投籃'),
                 "zone": classify_region(pos, basket) if pos else "未知",
@@ -1285,10 +1287,217 @@ def screen_passes(data, screen_frame, handler_id, screener_id, basket, max_s=6.0
             break
         pos = get_pos(data['court_coords'], p['to'], p['catch'])
         role = lambda q: "持球者" if q == handler_id else ("掩護者" if q == screener_id else "其他進攻球員")
+        _, cd = closest_defender(data, court_teams(data, 1), 1, p['to'], p['catch'])
         out.append({"kind": "pass", "seconds_after_screen": round((p['release'] - screen_frame) / fps, 1),
+                    "catch_defender_ft": cd, "catch_defense_level": def_label(cd),   # ⑦ 接球時離最近防守者
                     "from": p['frm'], "from_role": role(p['frm']), "to": p['to'], "to_role": role(p['to']),
                     "to_zone": classify_region(pos, basket) if pos else "未知"})
     return out
+
+
+# ── 6. 戰術細節（2026-11-11，讓主播講細一點；規則算事實、LLM 只負責講）──────────────
+# 座標單位呎；位置一律取前後幾張中位數（座標偶爾跳動）；隊伍用整段多數決（單張分隊有雜訊）
+
+DEF_BUCKETS = ((2.0, '貼身防守'), (4.0, '有人防'), (6.0, '空檔'), (float('inf'), '大空檔'))   # NBA 官方「最近防守者距離」分級
+
+
+def def_label(d):
+    return None if d is None else next(lab for th, lab in DEF_BUCKETS if d < th)
+
+
+def clip_teams(player_assignment):
+    votes = collections.defaultdict(collections.Counter)
+    for fr in player_assignment:
+        for p, tm in fr.items():
+            votes[p][tm] += 1
+    return {p: c.most_common(1)[0][0] for p, c in votes.items()}
+
+
+SIDELINE_MARGIN = 1.5     # 離邊線 < 1.5 呎（或場外）= 場邊的人（板凳 / 教練 / 坐在地上的）；底角射手站三分線後約 3 呎
+
+
+def _in_court(xy):
+    return xy is not None and SIDELINE_MARGIN <= xy[1] <= COURT_H_FT - SIDELINE_MARGIN and 0 <= xy[0] <= COURT_W_FT
+
+
+def court_teams(data, handler_team=1):
+    """整段多數決分隊，但每隊只留 5 個「真的在場上」的人（出現比例 × 在場內比例 最高的 5 個）。
+    場邊的人常被追成球員、分到某一隊（131 #8 / #11 坐在邊線上 → 「底角大空檔 22 呎」）→ 不算。回 {pid: 隊}。"""
+    cc = data['court_coords']
+    teams = clip_teams(data['player_assignment'])
+    n = max(1, len(cc))
+    score = {}
+    for q in teams:
+        pts = [fr[q] for fr in cc if q in fr]
+        score[q] = (len(pts) / n) * (sum(_in_court(xy) for xy in pts) / max(1, len(pts)))
+    out = {}
+    for tm in set(teams.values()):
+        mem = sorted([q for q in teams if teams[q] == tm], key=lambda q: -score[q])[:5]
+        out.update({q: tm for q in mem if score[q] > 0.2})
+    return out
+
+
+def _pos_med(cc, pid, f, half=2):
+    pts = [cc[i][pid] for i in range(max(0, f - half), min(len(cc), f + half + 1)) if pid in cc[i]]
+    if not pts:
+        return None
+    return (_median([q[0] for q in pts]), _median([q[1] for q in pts]))
+
+
+def _seg_end(data, f):
+    return next((c for c in (data.get('cuts') or []) if c > f), len(data['court_coords']))
+
+
+def closest_defender(data, teams, handler_team, pid, f, min_defs=4):
+    """(防守者, 距離呎)；那一刻有座標的防守者 < min_defs 個 → (None, None)（有人在畫面外，會看起來沒人防）。"""
+    cc = data['court_coords']
+    if not 0 <= f < len(cc):
+        return None, None
+    me = _pos_med(cc, pid, f)
+    if me is None:
+        return None, None
+    defs = [q for q in cc[f] if teams.get(q) is not None and teams.get(q) != handler_team and _in_court(cc[f][q])]
+    if len(defs) < min_defs:
+        return None, None
+    best = min(((_dist(me, pp), q) for q in defs for pp in [_pos_med(cc, q, f)] if pp is not None), default=None)
+    return (best[1], round(best[0], 1)) if best else (None, None)
+
+
+def _cross(a, b):
+    return a[0] * b[1] - a[1] * b[0]
+
+
+def handler_action(data, H, S, sf, basket, fps, handler_team, teams):
+    """① 持球者怎麼用掩護：走掩護那邊（use）/ 反向（reject）/ 直直往前；往籃下或往外；接下來 2.5 秒做什麼。
+    以撞上前 0.5 秒持球者 → 籃框的連線為基準：掩護者在線的哪一側，撞上後 1.5 秒持球者往哪一側走。"""
+    cc = data['court_coords']
+    end = _seg_end(data, sf)
+    f0, f1 = sf - int(0.5 * fps), sf + int(1.5 * fps)
+    if f1 >= end:
+        return {"use": "看不到後續", "note": f"擋拆後 {(end - sf) / fps:.1f} 秒鏡頭就切走 / 片段結束"}
+    p0, s0, p1 = _pos_med(cc, H, f0), _pos_med(cc, S, sf), _pos_med(cc, H, f1)
+    if None in (p0, s0, p1):
+        return {"use": "不明", "note": "持球者或掩護者座標缺"}
+    v = (basket[0] - p0[0], basket[1] - p0[1])
+    vn = math.hypot(*v) or 1.0
+    mv = (p1[0] - p0[0], p1[1] - p0[1])
+    lateral = _cross(v, mv) / vn                                # 持球者橫向移動（呎，帶正負）
+    side_s = _cross(v, (s0[0] - p0[0], s0[1] - p0[1]))
+    if abs(lateral) < 2.5:
+        use = "直直往前（沒有明顯繞過掩護）"
+    elif lateral * side_s > 0:
+        use = "走掩護那一側（use）"
+    else:
+        use = "反向切（reject，不走掩護）"
+    d0, d1 = _dist(p0, basket), _dist(p1, basket)
+    if d1 < d0 - 4:
+        if abs(p1[1] - CENTER_Y) < abs(p0[1] - CENTER_Y) - 2:
+            direction = "往籃下切（往中路）"
+        elif abs(p1[1] - CENTER_Y) > abs(p0[1] - CENTER_Y) + 2:
+            direction = "往籃下切（往底線 / 邊線）"
+        else:
+            direction = "往籃下切"
+    elif d1 > d0 + 4:
+        direction = "往外退"
+    else:
+        direction = "原地附近（沒有往籃下）"
+    sp = []
+    for f in range(sf, min(f1, end - 1)):
+        a, b = _pos_med(cc, H, f, 1), _pos_med(cc, H, f + 1, 1)
+        if a and b:
+            sp.append(_dist(a, b) * fps)
+    speed = round(sorted(sp)[int(len(sp) * 0.9)], 1) if len(sp) >= 5 else None   # 撞上後 1.5 秒內 90 分位速度（呎 / 秒）
+    # 接下來 2.5 秒：自己出手 / 傳球 / 退出來
+    win_end = min(end, sf + int(2.5 * fps))
+    follow, follow_s = "持球中", None
+    sh = [x for x in (data.get('shots') or []) if sf - int(0.3 * fps) <= x['release_frame'] < win_end and x['shooter'] == H]
+    ps = [q for q in (data.get('passes') or []) if q['kind'] == 'pass' and q['frm'] == H and sf - int(0.3 * fps) <= q['release'] < win_end]
+    cands = [('shot', x['release_frame'], x) for x in sh] + [('pass', q['release'], q) for q in ps]
+    first = min(cands, key=lambda x: x[1]) if cands else None
+    if first and first[0] == 'shot':
+        pr = _pos_med(cc, H, first[1])
+        moved = (d0 - _dist(pr, basket)) if pr else 0
+        follow = "切入後出手" if moved >= 8 else "急停跳投 / 原地出手"
+        follow_s = round((first[1] - sf) / fps, 1)
+    elif first and first[0] == 'pass':
+        follow, follow_s = f"傳給 #{first[2]['to']}", round((first[1] - sf) / fps, 1)
+    else:
+        pe = _pos_med(cc, H, win_end - 1)
+        if pe and _dist(pe, basket) > d0 + 4:
+            follow = "退出來重新組織"
+    return {"use": use, "direction": direction, "basket_dist_change_ft": round(d1 - d0, 1),
+            "max_speed_ft_s": speed, "next": follow, "next_after_s": follow_s}
+
+
+def help_defense(data, H, S, Dh, sf, basket, fps, handler_team, teams, action):
+    """② 協防（擋拆後 3 秒內）：掩護者順下進到籃下 12 呎內時，原本兩個防守者以外的人有沒有靠近到 6 呎內（補防順下）；
+    持球者切進 12 呎內時，Dh / Ds 以外的人有沒有上前（協防持球者）。Ds = 擋拆前 0.8~0.3 秒離掩護者最近的防守者（Dh 以外）。"""
+    cc = data['court_coords']
+    end = min(_seg_end(data, sf), sf + int(3.0 * fps))     # 順下多從弧頂開始，2 秒常還沒進禁區
+    defs = [q for q, tm in teams.items() if tm != handler_team]
+    ds_cnt = collections.Counter()
+    for f in range(max(0, sf - int(0.8 * fps)), max(0, sf - int(0.3 * fps))):
+        sp_ = _pos_med(cc, S, f, 0)
+        if sp_ is None:
+            continue
+        near = [(_dist(sp_, cc[f][q]), q) for q in defs if q != Dh and q in cc[f]]
+        if near:
+            ds_cnt[min(near)[1]] += 1
+    Ds = ds_cnt.most_common(1)[0][0] if ds_cnt else None
+    out = {"screener_defender": Ds}
+    for who, label, need in ((S, "roller", action == "roll"), (H, "handler", True)):
+        if not need:
+            continue
+        inside, helper = 0, None
+        for f in range(sf, end):
+            pw = _pos_med(cc, who, f)
+            if pw is None or _dist(pw, basket) > 12:
+                continue
+            inside += 1
+            near = []
+            for q in defs:
+                if q in (Dh, Ds):
+                    continue
+                pp = _pos_med(cc, q, f)
+                if _in_court(pp) and _dist(pw, pp) <= 6:
+                    near.append((round(_dist(pw, pp), 1), q))
+            if near:
+                helper = (min(near)[1], round((f - sf) / fps, 1), min(near)[0])
+                break
+        if inside < int(0.2 * fps) and helper is None:
+            out[label] = "沒進到籃下 12 呎內"
+        elif helper:
+            out[label] = {"helper": helper[0], "after_s": helper[1], "dist_ft": helper[2]}
+        else:
+            # 「沒人補防」等於說有空檔 → 要整段都有夠多防守者座標才講
+            seen = sum(1 for f in range(sf, end) if sum(1 for q in defs if q in cc[f]) >= 4)
+            out[label] = "沒人補防" if seen >= 0.8 * max(1, end - sf) else "不明（有防守者在畫面外）"
+    return out
+
+
+def open_looks(data, sf, basket, fps, handler_team, teams, until=None):
+    """⑦ 擋拆後 3 秒內的空檔：進攻球員在能得分的位置（三分線外 ≥ 22 呎或籃下 ≤ 10 呎）、
+    離最近防守者 ≥ 6 呎（NBA「大空檔」）連續 ≥ 0.5 秒。回 [{player, after_s, zone, defender_ft}]（最多 3 個）。"""
+    cc = data['court_coords']
+    end = min(_seg_end(data, sf), sf + int(3.0 * fps), until or len(cc))
+    step = max(1, int(fps / 10))
+    out = []
+    for q in [q for q, tm in teams.items() if tm == handler_team]:
+        run = []
+        for f in range(sf, end, step):
+            pq = _pos_med(cc, q, f)
+            _, d = closest_defender(data, teams, handler_team, q, f)
+            ok = _in_court(pq) and d is not None and d >= 6.0 and (_dist(pq, basket) >= 22 or _dist(pq, basket) <= 10)
+            if ok:
+                run.append((f, d, pq))
+            if run and (not ok or f + step >= end):
+                if (run[-1][0] - run[0][0]) / fps >= 0.5:
+                    mid = run[len(run) // 2]
+                    out.append({"player": q, "after_s": round((run[0][0] - sf) / fps, 1),
+                                "zone": classify_region(mid[2], basket), "defender_ft": round(_median([r[1] for r in run]), 1)})
+                    break
+                run = []
+    return sorted(out, key=lambda x: x['after_s'])[:3]
 
 
 def analyze_screen_instance(inst, data, handler_team, basket):
@@ -1316,7 +1525,20 @@ def analyze_screen_instance(inst, data, handler_team, basket):
         "coverage_detail": cov['detail'],
         "outcome": screen_outcome(data, sf, H, sid, handler_team, basket),
         "passes_after": screen_passes(data, sf, H, sid, basket),
+        "details": screen_details(inst, data, handler_team, basket),
     }
+
+
+def screen_details(inst, data, handler_team, basket):
+    """①②⑦：持球者怎麼用掩護、協防、擋拆後空檔（出手 / 接球時的防守距離在 screen_outcome / screen_passes）。"""
+    fps = data.get('fps', 30.0)
+    teams = court_teams(data, handler_team)
+    H, S, sf = inst['handler_id'], inst['screener_id'], inst['frame']
+    action, _ = classify_roll_pop(data['court_coords'], S, sf, basket, fps)
+    nxt = min([e['peak_frame'] for e in data.get('events') or [] if e['peak_frame'] > sf + fps] + [len(data['court_coords'])])
+    return {"handler": handler_action(data, H, S, sf, basket, fps, handler_team, teams),
+            "help": help_defense(data, H, S, inst['defender_id'], sf, basket, fps, handler_team, teams, action),
+            "open_looks": open_looks(data, sf, basket, fps, handler_team, teams, until=nxt)}
 
 
 # ── 獨立測試：讀 dump pkl，印每個事件的 facts ─────────────────────────────────
