@@ -22,6 +22,7 @@ Usage:
 """
 
 import os
+import math
 import sys
 import re
 import time
@@ -923,7 +924,7 @@ def detect_screens(model, device, court_coords, player_assignment, ball_acquisit
 
 def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acquisition,
                         fps, anchor=3, threshold=0.9, nms=3, dense=False,
-                        yolo_defender_pids=None, low=None):
+                        yolo_defender_pids=None, low=None, rescue_lo=None, rescue_contact=3.5, rescue_near=10.0):
     """
     事件定位版擋拆偵測（配 convert_contact.py 訓練的模型，例 finetune_contact_v2_pw5_best.pt）。
 
@@ -1052,10 +1053,33 @@ def detect_screen_peaks(model, device, court_coords, player_assignment, ball_acq
                     af = d[i][0]
                     cv[af] = max(cv.get(af, 0.0), float(pr))
         # 解碼：連續超過門檻的一段算一次（GRU 已經學會去重，不用 3 秒間隔）；雙門檻：掉到 low 以下才結束
+        # 救回（rescue_lo）：最高只到 [rescue_lo, threshold) 的一段，最高點前後一個取樣內掩護者離某個防守者 ≤ rescue_contact 呎、
+        # 離持球者 ≤ rescue_near 呎（真的撞上）→ 也算一次。2026-11-12 交叉驗證（rescue_eval.py，0.55 / 3.5 呎）：
+        # ±0.4 秒 F1 +0.014、±1 秒 +0.018（10/10），比直接降門檻好一倍。起因 screen_44 第二次掩護 0.64 < 0.7。
         from finetune_seq import decode_runs
-        events = [{'frame': int(f), 'handler_id': H, 'screener_id': cand, 'score': sc}
-                  for (H, cand), cv in curves.items()
-                  for f, sc in decode_runs(cv, threshold, gap=step * 1.5, low=low if low is not None else threshold - 0.2)]
+
+        def _contact(H, cand, f):
+            h_team = clip_team.get(H)
+            for g in (f - int(round(step)), f, f + int(round(step))):
+                if not 0 <= g < n:
+                    continue
+                fr = court_coords[g]
+                if cand not in fr or H not in fr or math.dist(fr[cand], fr[H]) > rescue_near:
+                    continue
+                if any(clip_team.get(q) is not None and clip_team.get(q) != h_team and math.dist(fr[cand], pq) <= rescue_contact
+                       for q, pq in fr.items()):
+                    return True
+            return False
+
+        start = rescue_lo if rescue_lo else threshold
+        lo2 = low if low is not None else threshold - 0.2
+        events = []
+        for (H, cand), cv in curves.items():
+            for f, sc in decode_runs(cv, start, gap=step * 1.5, low=lo2):
+                if sc >= threshold:
+                    events.append({'frame': int(f), 'handler_id': H, 'screener_id': cand, 'score': sc})
+                elif rescue_lo and _contact(H, cand, int(f)):
+                    events.append({'frame': int(f), 'handler_id': H, 'screener_id': cand, 'score': sc, 'rescued': True})
         events.sort(key=lambda e: e['frame'])
         return events, curves
 
@@ -1203,6 +1227,8 @@ def main():
     parser.add_argument('--peak_threshold', type=float, default=None,
                         help='peak 模式：尖峰至少要多少分（不給 = 整段 GRU 模型用 ckpt 記的門檻，其他 0.6）。2026-10-23 最終模型（座標清理 + 459 支、3 模型平均）交叉驗證：'
                              '0.6 → 準確率 77%、抓到率 70%、F1 0.732；0.8 → 81% / 61% / 0.693（只準 4%、少抓 9%）')
+    parser.add_argument('--rescue_lo', type=float, default=0.55,
+                        help='整段 GRU：最高只到 [rescue_lo, 門檻) 的一段，掩護者真的撞上防守者也算一次（0 = 關掉；rescue_eval.py）')
     parser.add_argument('--peak_nms', type=int, default=15,
                         help='peak 模式：同一組人兩次擋拆至少隔幾張 5fps 影格（15 = 3 秒）。'
                              '5 份交叉驗證（158 個掩護，門檻 0.6）：1 秒 F1 0.54（抓錯 119，37 個是同一次掩護發兩次）'
@@ -1522,10 +1548,13 @@ def main():
         rule = f'連續一段算一次、掉到 {peak_low:.2f} 以下才結束（整段 GRU）' if ckpt.get('seq') else f'間隔 ≥{args.peak_nms} 張'
         print(f"Screen detection: peak 模式（5fps、anchor 第 {anchor} 格、"
               f"門檻 {args.peak_threshold}、{rule}）...")
+        rescue_lo = (args.rescue_lo or None) if ckpt.get('seq') else None
+        if rescue_lo:
+            print(f"  救回：最高 {rescue_lo}~{args.peak_threshold} 的一段、掩護者真的撞上防守者（≤ 3.5 呎）也算")
         peaks, curves = detect_screen_peaks(
             model, device, court_coords, player_assignment, ball_acquisition, fps,
             anchor=anchor, threshold=args.peak_threshold, nms=args.peak_nms,
-            dense=args.peak_dense, yolo_defender_pids=yolo_defender_pids, low=peak_low,
+            dense=args.peak_dense, yolo_defender_pids=yolo_defender_pids, low=peak_low, rescue_lo=rescue_lo,
         )
         peak_curves = {f"{h}-{c}": sorted(cv.items()) for (h, c), cv in curves.items()}
         # start/end = 撞上那一刻前後各 0.3 秒：下游 tactics_tools 用 start/end 找接觸、畫框用；
@@ -1537,6 +1566,8 @@ def main():
             f, H, S, sc = pk['frame'], pk['handler_id'], pk['screener_id'], pk['score']
             ev = {'start': max(0, f - half), 'end': min(len(frames) - 1, f + half),
                   'peak_frame': f, 'handler_id': H, 'screener_id': S, 'score': sc}
+            if pk.get('rescued'):
+                ev['rescued'] = True
             events.append(ev)
             for i in range(ev['start'], ev['end'] + 1):
                 cur = per_frame[i]

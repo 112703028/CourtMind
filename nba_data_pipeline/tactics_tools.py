@@ -1259,8 +1259,11 @@ def screen_outcome(data, screen_frame, handler_id, screener_id, handler_team, ba
                 "made_source": sh.get('made_source', 'roboflow'),   # vlm（籃框放大圖，~85%）/ roboflow（~67%）
                 "confident": bool(sh['strong'])}
     if hi >= seg_end and seg_end < screen_frame + int(max_s * fps):
-        return {"shot": None, "note": f"擋拆後 {(seg_end - screen_frame) / fps:.1f} 秒鏡頭就切走，沒拍到結果"}
-    return {"shot": False, "note": f"擋拆後 {max_s:.0f} 秒內沒有偵測到出手"}
+        left = (seg_end - screen_frame) / fps
+        if seg_end < len(data['court_coords']):          # 真的切鏡頭
+            return {"shot": None, "note": f"擋拆後 {left:.1f} 秒切換鏡頭，之後是另一個畫面；這段時間內沒有偵測到出手"}
+        return {"shot": None, "note": f"片段在擋拆後 {left:.1f} 秒結束，這段時間內沒有偵測到出手（投籃偵測會漏，不代表沒出手）"}
+    return {"shot": False, "note": f"擋拆後 {max_s:.0f} 秒內沒有偵測到出手（投籃偵測會漏，不代表沒出手）"}
 
 
 def screen_passes(data, screen_frame, handler_id, screener_id, basket, max_s=6.0):
@@ -1367,7 +1370,7 @@ def _cross(a, b):
     return a[0] * b[1] - a[1] * b[0]
 
 
-def handler_action(data, H, S, sf, basket, fps, handler_team, teams):
+def handler_action(data, H, S, sf, basket, fps, handler_team, teams, Dh=None):
     """① 持球者怎麼用掩護：走掩護那邊（use）/ 反向（reject）/ 直直往前；往籃下或往外；接下來 2.5 秒做什麼。
     以撞上前 0.5 秒持球者 → 籃框的連線為基準：掩護者在線的哪一側，撞上後 1.5 秒持球者往哪一側走。"""
     cc = data['court_coords']
@@ -1380,7 +1383,9 @@ def handler_action(data, H, S, sf, basket, fps, handler_team, teams):
         return {"use": "不明", "note": "持球者或掩護者座標缺"}
     v = (basket[0] - p0[0], basket[1] - p0[1])
     vn = math.hypot(*v) or 1.0
-    mv = (p1[0] - p0[0], p1[1] - p0[1])
+    # 走哪一邊看撞上後 0.8 秒（經過掩護者那一刻）；1.5 秒時常已經切到籃下又偏回來（341：先往反方向閃 = 反向切，再轉回籃框）
+    ps = _pos_med(cc, H, sf + int(0.8 * fps)) or p1
+    mv = (ps[0] - p0[0], ps[1] - p0[1])
     lateral = _cross(v, mv) / vn                                # 持球者橫向移動（呎，帶正負）
     side_s = _cross(v, (s0[0] - p0[0], s0[1] - p0[1]))
     if abs(lateral) < 2.5:
@@ -1500,6 +1505,113 @@ def open_looks(data, sf, basket, fps, handler_team, teams, until=None):
     return sorted(out, key=lambda x: x['after_s'])[:3]
 
 
+def _own_defender(cc, q, defs, f0, f1):
+    """f0~f1 期間離 q 最近的防守者（多數決）= 守 q 的人。"""
+    cnt = collections.Counter()
+    for f in range(max(0, f0), max(0, f1)):
+        pq = _pos_med(cc, q, f, 1)
+        if pq is None:
+            continue
+        near = [(_dist(pq, pp), x) for x in defs for pp in [_pos_med(cc, x, f, 1)] if pp is not None and _in_court(pp)]
+        if near:
+            cnt[min(near)[1]] += 1
+    return cnt.most_common(1)[0][0] if cnt else None
+
+
+def offball_moves(data, H, S, sf, basket, fps, handler_team, teams, action, until=None, win_s=4.0):
+    """⑧ 無球進攻球員的跑位（擋拆前 1 秒 → 擋拆後 2.5 秒）+ 無球掩護。
+    跑位：切向籃下（最後 ≤ 10 呎、縮短 ≥ 8）/ 拉出到三分線外（20 呎內 → 21.5 呎外）/ 沿三分線移動（都在 20 呎外、移動 ≥ 8）/ 原地（< 5）/ 移動。
+    無球掩護：貼到「不是守他的」防守者 3.5 呎內 ≥ 0.2 秒（擋拆前 0.5 秒起）；被擋的人原本守掩護者、掩護者順下 = 掩護掩護者（西班牙擋拆）。
+    screen_117：#3 低位 → 背擋守 #8 的 #6 → 拉到三分線大空檔。"""
+    cc = data['court_coords']
+    end = min(_seg_end(data, sf), sf + int(win_s * fps), until or len(cc)) - 1
+    # 擋拆前後 2 秒內當過掩護者的人（同一波雙擋 / 連續擋）→ 不算「第三人」的無球掩護
+    other_screeners = {e['screener_id'] for e in data.get('events') or [] if abs(e['peak_frame'] - sf) <= 2 * fps} - {S}
+    f0 = max(0, sf - int(1.0 * fps))
+    if end <= sf:
+        return []
+    offs = [q for q, tm in teams.items() if tm == handler_team and q not in (H, S)]
+    defs = [q for q, tm in teams.items() if tm != handler_team]
+    guard = {x: None for x in defs}                       # 擋拆前每個防守者守誰
+    for x in defs:
+        cnt = collections.Counter()
+        for f in range(f0, max(f0 + 1, sf - int(0.2 * fps))):
+            px = _pos_med(cc, x, f, 1)
+            if px is None:
+                continue
+            near = [(_dist(px, pp), o) for o in teams if teams[o] == handler_team for pp in [_pos_med(cc, o, f, 1)] if pp is not None]
+            if near:
+                cnt[min(near)[1]] += 1
+        guard[x] = cnt.most_common(1)[0][0] if cnt else None
+    out = []
+    for q in offs:
+        p0, p1 = _pos_med(cc, q, f0), _pos_med(cc, q, end)
+        if not (_in_court(p0) and _in_court(p1)):
+            continue
+        d0, d1, disp = _dist(p0, basket), _dist(p1, basket), _dist(p0, p1)
+        if d1 <= 10 and d0 - d1 >= 8:
+            move = "切向籃下"
+        elif d0 < 20 and d1 >= 21.5:
+            move = "拉出到三分線外"
+        elif d0 >= 20 and d1 >= 20 and disp >= 8 and classify_region(p0, basket) != classify_region(p1, basket):
+            move = "沿三分線移動"
+        elif disp < 5 or classify_region(p0, basket) == classify_region(p1, basket):
+            move = "原地附近"
+        else:
+            move = "移動"
+        rec = {"player": q, "move": move, "from": classify_region(p0, basket), "to": classify_region(p1, basket),
+               "basket_dist_ft": [round(d0, 1), round(d1, 1)]}
+        # 中途經過哪一區（離起訖連線最遠的那一點）：12 的 #16 左底角 → 底線 → 右底角
+        seg = (p1[0] - p0[0], p1[1] - p0[1]); sl = math.hypot(*seg) or 1.0
+        far, farp = 0.0, None
+        for f in range(f0, end, max(1, int(fps / 5))):
+            pq = _pos_med(cc, q, f, 1)
+            if pq is None:
+                continue
+            dev = abs(_cross(seg, (pq[0] - p0[0], pq[1] - p0[1]))) / sl
+            if dev > far:
+                far, farp = dev, pq
+        if farp is not None and far >= 6:
+            via = classify_region(farp, basket)
+            if via not in (rec['from'], rec['to']):
+                rec['via'] = via
+                if via == '籃下/禁區' and move in ('沿三分線移動', '移動', '原地附近'):
+                    move = rec['move'] = '穿過禁區跑到另一邊'     # 35 #0：左側翼 → 禁區 → 右底角，不是沿三分線
+        if q in other_screeners:
+            out.append(rec)
+            continue
+        # 守 q 的人：擋拆前離他最近的（_own_defender）+ 配對表上守他的（guard）→ 都不算掩護對象（貼身防守不是掩護）
+        own = {_own_defender(cc, q, defs, f0, sf - int(0.2 * fps))} | {x for x, o in guard.items() if o == q}
+        run, fstart = 0, max(0, sf - int(0.5 * fps))
+        for f in range(fstart, end):
+            pq = _pos_med(cc, q, f, 1)
+            hit = None
+            if pq is not None:
+                near = [(_dist(pq, pp), x) for x in defs if x not in own for pp in [_pos_med(cc, x, f, 1)] if pp is not None and _in_court(pp)]
+                if near and min(near)[0] <= 3.5:
+                    hit = min(near)[1]
+            if hit is not None and run == 0:
+                # 要是「跑過去撞上」：撞上前 0.5 秒內跟這個防守者還 > 5 呎（一開始就貼著 = 在防守，不是掩護）
+                fb = max(0, f - int(0.5 * fps))
+                pa, pb = _pos_med(cc, q, fb, 1), _pos_med(cc, hit, fb, 1)
+                if f <= fstart or pa is None or pb is None or _dist(pa, pb) <= 5:
+                    hit = None
+            run = run + 1 if hit is not None else 0
+            if run >= max(2, int(0.2 * fps)):
+                X = guard.get(hit)
+                if X == S:
+                    kind = "掩護掩護者（西班牙擋拆）" if action == "roll" else "擋守掩護者的防守者"
+                elif X == H:
+                    kind = "再幫持球者擋一次"
+                else:
+                    kind = f"替 #{X} 做無球掩護" if X is not None else "無球掩護"
+                rec["screen"] = {"defender": hit, "defender_was_guarding": X, "kind": kind,
+                                 "after_s": round((f - run + 1 - sf) / fps, 1)}
+                break
+        out.append(rec)
+    return out
+
+
 def analyze_screen_instance(inst, data, handler_team, basket):
     """對一個擋拆實例算 region / roll-pop / coverage。"""
     cc = data['court_coords']
@@ -1536,9 +1648,10 @@ def screen_details(inst, data, handler_team, basket):
     H, S, sf = inst['handler_id'], inst['screener_id'], inst['frame']
     action, _ = classify_roll_pop(data['court_coords'], S, sf, basket, fps)
     nxt = min([e['peak_frame'] for e in data.get('events') or [] if e['peak_frame'] > sf + fps] + [len(data['court_coords'])])
-    return {"handler": handler_action(data, H, S, sf, basket, fps, handler_team, teams),
+    return {"handler": handler_action(data, H, S, sf, basket, fps, handler_team, teams, Dh=inst['defender_id']),
             "help": help_defense(data, H, S, inst['defender_id'], sf, basket, fps, handler_team, teams, action),
-            "open_looks": open_looks(data, sf, basket, fps, handler_team, teams, until=nxt)}
+            "open_looks": open_looks(data, sf, basket, fps, handler_team, teams, until=nxt),
+            "offball": offball_moves(data, H, S, sf, basket, fps, handler_team, teams, action, until=nxt)}
 
 
 # ── 獨立測試：讀 dump pkl，印每個事件的 facts ─────────────────────────────────

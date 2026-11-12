@@ -145,6 +145,12 @@ def sheet(tag='v1'):
                             if not isinstance(v, dict) and key == 'handler' and v == '沒人補防':
                                 v = '沒人上前協防'
                             add(c, ev, t, f'{who}{tag_s}', f"#{v['helper']}（{v['after_s']} 秒後）" if isinstance(v, dict) else v)
+                    if 'offball' in s:                       # v4 起：無球跑位
+                        moves = [o for o in s['offball'] if o['move'] != '原地附近' or 'screen' in o]
+                        add(c, ev, t, f'無球跑位{tag_s}', '；'.join(
+                            f"#{o['player']} {o['move']}（{o['from']}→" + (f"{o['via']}→" if o.get('via') else '') + f"{o['to']}）" + (
+                                f"，{o['screen']['after_s']} 秒後{o['screen']['kind']}（擋 #{o['screen']['defender']}）" if 'screen' in o else '')
+                            for o in moves) or '其他人都原地附近')
                     add(c, ev, t, f'擋拆後空檔{tag_s}', '；'.join(f"#{o['player']} {o['zone']}（{o['after_s']} 秒後，最近防守者 {o['defender_ft']} 呎）"
                                                             for o in s['open_looks']) or '沒有大空檔')
             add(c, ev, t, '擋拆後傳球', _fmt_passes(e.get('passes_after')))

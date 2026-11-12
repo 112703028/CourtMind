@@ -135,7 +135,8 @@ def t_list_screens(ctx):
                             # 規則算好的戰術細節（2026-11-11）：持球者怎麼用掩護、協防、擋拆後空檔
                             "handler_action": fa["details"]["handler"],
                             "help": fa["details"]["help"],
-                            "open_looks": fa["details"]["open_looks"]})
+                            "open_looks": fa["details"]["open_looks"],
+                            "offball": fa["details"]["offball"]})
         # 結構標籤：讓 LLM 直接有正確的戰術詞，不用自己編
         frames = [it['frame'] for it in g]
         if len(g) == 1:
@@ -144,6 +145,9 @@ def t_list_screens(ctx):
             ptype = "double (雙擋，兩人幾乎同時擋)"
         else:
             ptype = "staggered (連續擋，兩人先後接力擋)"
+        # 規則偵測到「掩護掩護者」（第三人撞守掩護者的防守者、掩護者順下）→ 直接標西班牙擋拆，不讓 LLM 猜
+        if any('西班牙' in (o.get('screen') or {}).get('kind', '') for sc in screens for o in sc['offball']):
+            ptype += " + Spain PnR（西班牙擋拆：有人掩護了守掩護者的防守者）"
         last = analyze_screen_instance(g[-1], data_like, ctx['handler_team'], ctx['basket'])
         out.append({"event": i,
                     "time_s": round(min(frames) / ctx['fps'], 1),
@@ -314,7 +318,9 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
     不要說「確定命中」「確定沒進」。made=None 就說進沒進畫面看不清楚。誰出手、什麼時候、哪裡出手比較可靠，可以直接說。
   - confident=False（沒看到籃框）：出手本身也要用保留語氣（「看起來是一次出手」）。
   - 不要把欄位名稱（made=True、shot_dist_ft 之類）寫進解說，用自然的話說。
-  - shot=False / None：照 note 說（球權已換 / 沒出手 / 鏡頭切走沒拍到）；outcome 是 None 就完全不要提出手結果。
+  - shot=False / None：照 note 說。note 寫「片段結束」「沒有偵測到出手」時，只能說「之後的出手偵測不到 / 畫面到這裡為止」，
+    **不准**說「鏡頭切走」「沒拍到」「沒有出手」（投籃偵測會漏，片段裡可能其實有出手）；只有 note 寫「切換鏡頭」才能講鏡頭切換。
+    outcome 是 None 就完全不要提出手結果。
 
 擋拆後的傳球（list_screens 每個事件的 passes_after，手腕偵測算好的事實）：
   - 依時間排：誰（from_role）傳給誰（to_role 持球者 / 掩護者 / 其他進攻球員）、擋拆後幾秒、接球位置（to_zone）。
@@ -334,6 +340,10 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
     可以說「#X 在左底角拉出空檔」；不要說「球沒傳過去」「錯失機會」——傳球偵測會漏，沒列出傳球不代表沒傳。
   - 防守距離（NBA 分級，離最近防守者）：outcome.defense_level（出手時）、passes_after[].catch_defense_level（接球時）：
     貼身防守 < 2 呎、有人防 2~4 呎、空檔 4~6 呎、大空檔 ≥ 6 呎。座標有 1~2 呎誤差，「空檔」那級用保留語氣（「看起來有些空間」）。
+  - offball：持球者、掩護者以外的進攻球員，擋拆前 1 秒到擋拆後 2.5 秒怎麼跑：move = 切向籃下 / 拉出到三分線外 / 沿三分線移動 /
+    原地附近 / 移動（from → to 是起訖位置，via 是中途經過的區域，例如左底角經底線跑到右底角）。有 screen 欄位 = 他做了無球掩護（擋了 #defender，那人原本守 #defender_was_guarding）：
+    「掩護掩護者（西班牙擋拆）」= 他去擋守掩護者的防守者、讓掩護者順下更順；play_type 有 Spain PnR 時要講出「西班牙擋拆」並說明是誰擋誰。
+    用跑位串起戰術：例如「#3 先背擋 #6 再拉到三分線，接到 #2 的傳球」。「原地附近」的人通常不用提。
   - 這些細節不要寫成數字報表；挑最能說明這球的 2~3 個講，用自然的轉播語氣。
 
 鏡頭段落（camera_segment）：
