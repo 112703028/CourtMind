@@ -502,6 +502,14 @@ Responses API（gpt-5.5 在 chat completions 不能同時用工具和 reasoning�
   → **正式換成 `finetune_seq_final5bgru_s{1,2,3}`**（run_pipeline.sh、rescreen_batch.py），批次 476 支重算：540 個（救回 11），44 第二次掩護不用救回就抓到。
 - 坑：pod `/mnt/data` 配額滿（共用 NAS 還有 1 TB，但專案配額用完）→ 使用者刪了另一專案的 data.tar（5.8 GB）、runs/smoke_vbert（5.9 GB）；刪完要等一下才能寫。
 
+### 32. 持球者改用 SAM3 追球 + Viterbi 上線（2026-11-13）
+- `possession_batch.py eval`：476 支裡有標記 + 有追球的 462 支，同一個擋拆模型（final5bgru + 救回）只換持球者來源，跟訓練標記比
+  （標記編號用框重疊對到批次編號）：沒持球者的影格 45% → **28%**、撞上那刻持球者對 414 → **452**/508（81 → 89%）；
+  擋拆 F1 ±0.4 秒 0.769 → 0.775、±1 秒 0.844 → 0.851（只看掩護者；持球者也要對 0.761 → 0.763、0.834 → 0.838）—— 主要是誤報少 ~10、抓對持平。
+- 上線：`inference.py` 平滑後、ScreenNet 前用 `possession_sam3.possession_path`（pkl 有 shot_sam3 時預設；`--no_possession` 關），
+  Roboflow 結果沿用給投籃偵測；handler_detector 原始結果存 `ball_acquisition_det`、來源 `ball_acquisition_src`。
+  批次 476 支寫入（`possession_batch.py apply`）→ 擋拆重算 528 個（救回 6）→ 傳球重寫。pod 用 run_pipeline.sh 跑 screen_358 全流程確認 OK。
+
 ### 掩護偵測小結（2026-10-25）
 最近 4 個實驗（5fps 預訓練、姿態輸入、座標內插，以及姿態檢查器）在 5 種子比較下都落在 0.740 ± 0.001 →
 **在現有標記下大概已到頂**（±0.4 秒約 0.74、±1 秒約 0.85）；換種子的變動（±0.02）比任何改法都大。

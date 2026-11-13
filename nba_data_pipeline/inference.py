@@ -1258,6 +1258,8 @@ def main():
                         help='影片 fps（換算秒數用）；不給則從影片自動偵測，失敗 fallback 30')
     parser.add_argument('--no_shots', action='store_true',
                         help='不做投籃偵測（--sam3_tracks 的 pkl 有 shot_sam3 時預設會做）')
+    parser.add_argument('--no_possession', action='store_true',
+                        help='持球者不用 SAM3 追球 + Viterbi，只用 handler_detector（pkl 有 shot_sam3 時預設用 Viterbi）')
     parser.add_argument('--sam3_tracks', default=None,
                         help='SAM3 產的 player_tracks pkl 路徑。給定則讀它當追蹤結果，'
                              '跳過 SAM2（用 SAM3 乾淨追蹤取代）')
@@ -1467,6 +1469,26 @@ def main():
         ball_acquisition, min_run=args.ba_min_run, fill_gap=args.ba_fill_gap
     )
 
+    # ── 持球者改用 SAM3 追球 + Viterbi（2026-11-13，possession_sam3.possession_path）──────────────
+    # handler_detector 的標記是「這波的主角」不是「此刻誰拿球」→ 一半影格沒持球者、撞上那刻常錯。
+    # 476 支擋拆片段（possession_batch.py）：沒持球者 45% → 28%、撞上那刻持球者對 81% → 89%、擋拆 ±1 秒 F1 0.844 → 0.851。
+    # 狀態 = 每個球員持球 / 球在空中；證據 = SAM3 球碰到誰（權重 2）+ handler_detector（權重 1）；A 直接跳 B 罰 32、防守者持球罰 3。
+    ball_acquisition_det, ba_src, rf = list(ball_acquisition), 'handler_detector', None
+    if args.sam3_tracks and _sam3.get('shot_sam3') and not args.no_possession:
+        print("持球者：SAM3 追球 + Viterbi（handler_detector 當輔助證據）...")
+        import shot_owner as _so
+        from shot_detect import run_rf
+        from possession_sam3 import possession_path
+        rf = run_rf(frames, fps)                          # 投籃偵測沿用，不重跑
+        _s = _sam3['shot_sam3']
+        _chosen, _ = _so.pick_ball(_s, rf)
+        _tch = _so.touches(_s, frames[0].shape[:2], _chosen)   # 同 possession_sam3.prep（驗證用的就是這份）
+        ball_acquisition = possession_path({'ball_acquisition': ball_acquisition, 'player_tracks': player_tracks,
+                                            'player_assignment': player_assignment, 'fps': fps}, _s, _tch)
+        ba_src = 'sam3_viterbi'
+        _none = lambda ba: sum(1 for x in ba if x in (None, -1)) / max(1, len(ba))
+        print(f"  沒持球者的影格：handler_detector {_none(ball_acquisition_det):.0%} → Viterbi {_none(ball_acquisition):.0%}")
+
     # ── Court coords ───────────────────────────────────────────────────────
     print("Projecting players to court coordinates (feet)...")
     # 模型用第 2 版座標訓練（data_meta court_v2）→ 推論也用第 2 版，否則照舊（訓練 / 推論要同一套）
@@ -1628,7 +1650,7 @@ def main():
     if args.sam3_tracks and _sam3.get('shot_sam3') and not args.no_shots:
         print("Shot detection（SAM3 球 / 球員遮罩 + Roboflow 籃框 / 跳投 / 上籃 / 進框）...")
         from shot_detect import run_rf, detect_shots
-        rf = run_rf(frames, fps)
+        rf = rf if rf is not None else run_rf(frames, fps)
         shots, cuts = detect_shots(_sam3['shot_sam3'], frames, rf, player_tracks,
                                    grid_prefix=os.path.splitext(args.output_video)[0])   # 籃框放大圖 → 本機 VLM 判進球
         print(f"  鏡頭切點 {[_fmt(c) for c in cuts]}；出手 {len(shots)} 次")
@@ -1656,6 +1678,8 @@ def main():
             'peak_curves': peak_curves,
             # 每幀持球者（重算 ScreenNet 分數 / 之後重訓驗證會用到）
             'ball_acquisition': ball_acquisition,
+            'ball_acquisition_det': ball_acquisition_det,   # handler_detector 原始（平滑後）
+            'ball_acquisition_src': ba_src,                  # sam3_viterbi / handler_detector
             'yolo_defender_pids': sorted(yolo_defender_pids) if yolo_defender_pids else [],
             # 投籃（shot_detect.py）：[{release_frame, t, shooter, kind, made, strong, amp, rim, segment}]；cuts = 鏡頭切點
             'shots': shots,
