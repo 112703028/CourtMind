@@ -1525,8 +1525,9 @@ def offball_moves(data, H, S, sf, basket, fps, handler_team, teams, action, unti
     screen_117：#3 低位 → 背擋守 #8 的 #6 → 拉到三分線大空檔。"""
     cc = data['court_coords']
     end = min(_seg_end(data, sf), sf + int(win_s * fps), until or len(cc)) - 1
-    # 擋拆前後 2 秒內當過掩護者的人（同一波雙擋 / 連續擋）→ 不算「第三人」的無球掩護
-    other_screeners = {e['screener_id'] for e in data.get('events') or [] if abs(e['peak_frame'] - sf) <= 2 * fps} - {S}
+    # 擋拆前後 3 秒內當過掩護者的人（同一波雙擋 / 連續擋）→ 不算「第三人」的無球掩護
+    #（2 秒太窄：136 兩次擋拆差 2 秒多一點，#8 是下一次的掩護者卻被當成第三人擋了 #1）
+    other_screeners = {e['screener_id'] for e in data.get('events') or [] if abs(e['peak_frame'] - sf) <= 3 * fps} - {S}
     f0 = max(0, sf - int(1.0 * fps))
     if end <= sf:
         return []
