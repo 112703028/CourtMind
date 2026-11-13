@@ -113,8 +113,13 @@ def clip_teams(pa):
     return {p: c.most_common(1)[0][0] for p, c in cnt.items()}
 
 
-def possession_path(d, s, tch, def_pen=3.0):
-    """events.pkl + shot_sam3 + touches → Viterbi 持球者路徑（原片每張，-1 = 沒人拿）。"""
+def possession_path(d, s, tch, def_pen=3.0, min_touch=0.2):
+    """events.pkl + shot_sam3 + touches → Viterbi 持球者路徑（原片每張，-1 = 沒人拿）。
+    min_touch：追到球的影格裡有人碰球的比例 < 這個值 = 選錯球（比分條上的球圖示等；screen_147 追到 110/110 張、只有 6 張有人碰）
+    → SAM3 的球不可信，整支退回 handler_detector（d['ball_acquisition']）。476 支中位數 0.75、低於 0.2 的 17 支。"""
+    seen = [t_ for t_ in tch if t_[1] is not None]
+    if not seen or sum(1 for t_ in seen if t_[0] is not None) / len(seen) < min_touch:
+        return list(d['ball_acquisition'])
     n, fps = len(d['ball_acquisition']), d.get('fps', 30.0)
     sam, flight = holders_full(s, tch, d['player_tracks'], n, with_flight=True)
     return viterbi(sam, list(d['ball_acquisition']), flight, fps, team=clip_teams(d['player_assignment']), def_pen=def_pen)

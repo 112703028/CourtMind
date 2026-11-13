@@ -509,6 +509,9 @@ Responses API（gpt-5.5 在 chat completions 不能同時用工具和 reasoning�
 - 上線：`inference.py` 平滑後、ScreenNet 前用 `possession_sam3.possession_path`（pkl 有 shot_sam3 時預設；`--no_possession` 關），
   Roboflow 結果沿用給投籃偵測；handler_detector 原始結果存 `ball_acquisition_det`、來源 `ball_acquisition_src`。
   批次 476 支寫入（`possession_batch.py apply`）→ 擋拆重算 528 個（救回 6）→ 傳球重寫。pod 用 run_pipeline.sh 跑 screen_358 全流程確認 OK。
+- 端到端 v7 抓到坑：147 擋拆 3 → 1 次。原因 = **選錯球**（SAM3 追到 110/110 張、只有 6 張有人碰 → 球整段「在空中」→ Viterbi 蓋掉 handler_detector 判對的 #2）。
+  476 支「追到球的影格裡有人碰球」中位數 0.75、低於 0.1 有 15 支 → `possession_path(min_touch=0.2)`：低於 0.2（17 支）整支退回 handler_detector。
+  重驗：±0.4 秒 0.769 → **0.779**、±1 秒 0.844 → **0.853**（比沒退回的 0.775 / 0.851 好）、撞上那刻持球者對 450/508。批次重算 531 個（救回 6），147 三次擋拆回來。
 
 ### 掩護偵測小結（2026-10-25）
 最近 4 個實驗（5fps 預訓練、姿態輸入、座標內插，以及姿態檢查器）在 5 種子比較下都落在 0.740 ± 0.001 →
