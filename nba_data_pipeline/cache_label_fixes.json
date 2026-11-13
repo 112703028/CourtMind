@@ -44,6 +44,11 @@
     "idx": 18,
     "tid": 5,
     "src": "unlabeled_check U10 人工確認是真掩護（2026-10-26）"
+   },
+   {
+    "idx": 30,
+    "tid": 5,
+    "src": "M5 2026-11-13 missing_label_check：同一掩護者的第二次擋拆漏標（交叉驗證誤報 ≥ 0.8），使用者確認"
    }
   ]
  },
@@ -53,6 +58,11 @@
     "idx": 7,
     "tid": 6,
     "src": "unlabeled_check U11 人工確認是真掩護（2026-10-26）"
+   },
+   {
+    "idx": 24,
+    "tid": 6,
+    "src": "M6 2026-11-13 missing_label_check：同一掩護者的第二次擋拆漏標（交叉驗證誤報 ≥ 0.8），使用者確認"
    }
   ]
  },
@@ -196,5 +206,23 @@
  },
  "screen_443": {
   "exclude": "2026-11-04 使用者確認（miss_check/cat5_far_from_handler.jpg）：真正的持球者沒被追蹤到"
+ },
+ "screen_44": {
+  "add_events": [
+   {
+    "idx": 23,
+    "tid": 10,
+    "src": "M1 2026-11-13 missing_label_check：同一掩護者的第二次擋拆漏標（交叉驗證誤報 ≥ 0.8），使用者確認"
+   }
+  ]
+ },
+ "screen_146": {
+  "add_events": [
+   {
+    "idx": 29,
+    "tid": 12,
+    "src": "M4 2026-11-13 missing_label_check：同一掩護者的第二次擋拆漏標（交叉驗證誤報 ≥ 0.8），使用者確認"
+   }
+  ]
  }
 }

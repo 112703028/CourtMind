@@ -44,8 +44,10 @@ def main():
                 c['track_team'][int(pid)] = t
             done['set_team'] = True
             msgs.append(f"分隊 {fx['set_team']}")
-        if fx.get('add_events') and not done.get('add_events'):
+        if fx.get('add_events'):
+            # 逐筆檢查（同一掩護者 ±2 窗內已有就跳過）—— 不用「整支只補一次」，之後追加的才會套上（2026-11-13 156 / 157 第二次補）
             step = c['fps'] / 5
+            added = []
             for a in fx['add_events']:
                 if any(e['tid'] == a['tid'] and abs(e['idx'] - a['idx']) <= 2 for e in c['events']):
                     continue
@@ -54,9 +56,11 @@ def main():
                 if a['tid'] not in c['screener_tids']:
                     c['screener_tids'] = list(c['screener_tids']) + [a['tid']]
                 c['track_team'][a['tid']] = 'offense'
+                added.append((a['tid'], a['idx']))
             c['events'].sort(key=lambda e: e['idx'])
             done['add_events'] = True
-            msgs.append(f"補掩護 {[(a['tid'], a['idx']) for a in fx['add_events']]}")
+            if added:
+                msgs.append(f"補掩護 {added}")
         if fx.get('set_handler') is not None and not done.get('set_handler'):
             old = c['handler_tid']
             c['handler_tid'] = int(fx['set_handler'])

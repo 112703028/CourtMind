@@ -418,14 +418,15 @@ unset SSL_CERT_FILE
 #   （--ball：另用 10fps 追球員 + 球 → inference 會做投籃偵測：誰出手、哪裡、進沒進，寫進 events.pkl 的 shots；
 #     要 models/rf_basketball_det_v4.onnx（Roboflow NBA 偵測權重）+ onnxruntime）
 # --ckpt 給 3 個種子的最終模型 → 機率平均；peak 門檻預設 0.6；座標自動 clean_court_tracks
-# final4gru = final4（第 2 版座標 + 修正標記 + 翻轉增強）+ 整段 GRU（ckpt 有 seq 欄位 → 自動走 GRU + 連續一段解碼）；ckpt data_meta court_v2=1 → 推論自動用第 2 版座標
+# final5bgru（2026-11-13 正式）= final4（第 2 版座標 + 第 2 輪修正標記 + 翻轉增強）+ 補標同一人的第二次擋拆 4 個 + 整段 GRU
+#   （ckpt 有 seq 欄位 → 自動走 GRU + 連續一段解碼）+ 接觸救回（--rescue_lo 0.55，0 = 關）；ckpt data_meta court_v2=1 → 推論自動用第 2 版座標
 # 每支影片用自己的 --stub_dir（stub 檔名固定，共用會讀到別支的舊結果）
 python nba_data_pipeline/inference.py \
     --video        input_videos/screen/screen_123.mp4 \
     --sam3_tracks  stubs/screen_123_sam3_tracks.pkl \
-    --ckpt nba_data_pipeline/checkpoints/finetune_contact_final3_s1_best.pt \
-           nba_data_pipeline/checkpoints/finetune_contact_final3_s2_best.pt \
-           nba_data_pipeline/checkpoints/finetune_contact_final3_s3_best.pt \
+    --ckpt nba_data_pipeline/checkpoints/finetune_seq_final5bgru_s1_best.pt \
+           nba_data_pipeline/checkpoints/finetune_seq_final5bgru_s2_best.pt \
+           nba_data_pipeline/checkpoints/finetune_seq_final5bgru_s3_best.pt \
     --output_video output_videos/e2e/screen_123.mp4 \
     --stub_dir     stubs/e2e_123
 # 戰術分析（防守應對 = models/coverage_rf.pkl 隨機森林 + LLM 混合；有 shots 時每個擋拆多「結果」：誰出手、幾秒後、哪裡、進沒進）
