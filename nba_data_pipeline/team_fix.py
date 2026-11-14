@@ -91,3 +91,28 @@ def fix_collapsed(frames, player_tracks, player_assignment, ball_acquisition, co
            for pa in player_assignment]
     off = sorted(p for p, t in team.items() if t == 'offense')
     return new, f'分隊塌掉（持球者 #{H} 以外 {n} 人同隊）→ 改用 assign_teams：進攻 {off}'
+
+
+
+def inherit_uncertain_teams(player_assignment, prior_assignment, lo=0.35, hi=0.65):
+    """重新追蹤（片頭剪掉重跑、編號已換回舊的）時：這次分隊不確定（判成進攻的比例在 lo~hi）的人，沿用舊結果的整段分隊；
+    確定的照新結果。剪片頭只是要去掉假球員，不是要改分隊（screen_366：#7 這次進攻 45% → 多數決翻成防守 → 使用者確認過的擋拆消失）。
+    「兩隊各 5 人」硬平衡試過：分隊準確 92.8 → 93.0%，但有換人的 70 支擋拆 ±1 秒 F1 0.827 → 0.784 ❌（前 10 人常混進場邊的人）。
+    回 (新的 player_assignment, {pid: 沿用的隊})。"""
+    def votes(pa):
+        v = collections.defaultdict(collections.Counter)
+        for fd in pa:
+            for p, tm in fd.items():
+                v[p][tm] += 1
+        return v
+    new_v, old_v = votes(player_assignment), votes(prior_assignment)
+    keep = {}
+    for p, c in new_v.items():
+        share = c[1] / max(1, sum(c.values()))
+        if lo <= share <= hi and p in old_v:
+            old_team = old_v[p].most_common(1)[0][0]
+            if old_team != (1 if share >= 0.5 else 2):
+                keep[p] = old_team
+    if not keep:
+        return player_assignment, {}
+    return [{p: (keep[p] if p in keep else tm) for p, tm in fd.items()} for fd in player_assignment], keep

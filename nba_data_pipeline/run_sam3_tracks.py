@@ -16,6 +16,9 @@ run_sam3_tracks.py — SAM3 concept "basketball player" 追蹤 → player_tracks
       --clips_file nba_data_pipeline/train_clips.txt --out_dir stubs/train_sam3 --single_gpu
 """
 import os
+import sys
+from pathlib import Path
+import json
 import argparse
 import subprocess
 import tempfile
@@ -230,6 +233,34 @@ def ball_track(predictor, frame_dir, jpgs, n, fps, args):
                 balls=balls, ball_masks=bmasks)
 
 
+def decide_start(args, frame_dir, jpgs, fps):
+    """從第幾張開始追蹤：--start_frame > clip_trim.json（片段名）> 自動（片頭 1 秒內的切鏡頭，shot_events.find_cuts）。"""
+    if args.start_frame is not None:
+        return max(0, args.start_frame)
+    clip = Path(args.video).stem
+    if args.trim_file and Path(args.trim_file).exists():
+        trim = json.load(open(args.trim_file, encoding='utf-8'))
+        if clip in trim:
+            return int(trim[clip])
+    if args.no_auto_trim:
+        return 0
+    import cv2
+    sys.path.insert(0, str(Path(__file__).parent))
+    from shot_events import find_cuts
+    k = min(len(jpgs), int(1.0 * fps) + 4)
+    cuts = find_cuts([cv2.imread(os.path.join(frame_dir, f)) for f in jpgs[:k]])
+    early = [c for c in cuts if c <= 1.0 * fps]
+    return early[0] if early else 0
+
+
+def shift_shot(shot, start):
+    """追球結果的 frame_idx 是剪掉片頭後的編號 → 加回保留點。"""
+    if shot and start:
+        shot = dict(shot)
+        shot['frame_idx'] = [f + start for f in shot['frame_idx']]
+    return shot
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--video', default=None, help='單支影片模式')
@@ -253,6 +284,12 @@ def main():
     ap.add_argument('--ball_only', action='store_true',
                     help='單支影片模式：只追 10fps 球員 + 球（shot_sam3），不重跑 5fps 擋拆追蹤；pkl 只有 shot_sam3'
                          '（已經有擋拆追蹤的片段補追球用，編號跟原本的 player_tracks 不同，用 IoU 對）')
+    ap.add_argument('--start_frame', type=int, default=None,
+                    help='單支影片模式：從這張開始追蹤，之前的影格當沒有球員（影格編號不變）。'
+                         '不給 → 查 --trim_file（片段名）→ 都沒有就自動：片頭 1 秒內有切鏡頭就從切點開始（--no_auto_trim 關）')
+    ap.add_argument('--trim_file', default=str(Path(__file__).parent / 'clip_trim.json'),
+                    help='片頭要剪掉的人工設定 {片段名: 從第幾張開始保留}（2026-11-14 使用者看 output_videos/cut_check 標的 86 支）')
+    ap.add_argument('--no_auto_trim', action='store_true', help='不自動偵測片頭殘留的前一段畫面')
     ap.add_argument('--exclude_referee', action='store_true', default=True,
                     help='跑第二個 concept "referee" 排掉裁判/教練（預設開）')
     ap.add_argument('--no_exclude_referee', dest='exclude_referee',
@@ -288,12 +325,24 @@ def main():
     n = len(jpgs)
     print(f"抽出 {n} 幀")
     fps = get_fps(args.video)
+    # ── 片頭殘留的前一段畫面（2026-11-14）：從保留點開始追蹤，否則前一段畫面認出的人會被硬接到新畫面上（screen_366 冒出不存在的 #3）
+    n_full, start = n, decide_start(args, frame_dir, jpgs, fps)
+    if start:
+        for f in jpgs[:start]:
+            os.remove(os.path.join(frame_dir, f))
+        for i, f in enumerate(jpgs[start:]):                 # SAM3 讀連號的 jpg 資料夾 → 重新編號
+            os.rename(os.path.join(frame_dir, f), os.path.join(frame_dir, f'k{i:05d}.jpg'))
+        for i in range(n - start):
+            os.rename(os.path.join(frame_dir, f'k{i:05d}.jpg'), os.path.join(frame_dir, f'{i:05d}.jpg'))
+        jpgs = sorted(f for f in os.listdir(frame_dir) if f.endswith('.jpg'))
+        n = len(jpgs)
+        print(f"片頭剪掉 {start} 張（從第 {start} 張開始追蹤；輸出補回空影格，影格編號不變）")
     if args.ball_only:
-        shot = ball_track(predictor, frame_dir, jpgs, n, fps, args)
+        shot = shift_shot(ball_track(predictor, frame_dir, jpgs, n, fps, args), start)
         shutil.rmtree(frame_dir, ignore_errors=True)
         os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
         with open(args.out, 'wb') as fp:
-            pickle.dump({'n_frames': n, 'fps': fps, 'shot_sam3': shot}, fp)
+            pickle.dump({'n_frames': n_full, 'fps': fps, 'shot_sam3': shot, 'start_frame': start}, fp)
         print(f"只追球（{BALL_FPS:g}fps {len(shot['frame_idx'])} 張）→ {args.out}")
         return
 
@@ -317,9 +366,12 @@ def main():
         player_tracks, excluded = track_frame_dir(predictor, frame_dir, n, args)
         shot = None
 
+    if start:
+        player_tracks = [{} for _ in range(start)] + list(player_tracks)
+        shot = shift_shot(shot, start)
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     with open(args.out, 'wb') as fp:
-        pickle.dump({'player_tracks': player_tracks, 'n_frames': n, 'fps': fps,
+        pickle.dump({'player_tracks': player_tracks, 'n_frames': n_full, 'fps': fps, 'start_frame': start,
                      **({'shot_sam3': shot} if shot else {})}, fp)
     n_tracked = sum(1 for ft in player_tracks if ft)
     print(f"SAM3 tracked {n_tracked}/{n} frames → {args.out}"

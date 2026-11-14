@@ -1258,6 +1258,8 @@ def main():
                         help='影片 fps（換算秒數用）；不給則從影片自動偵測，失敗 fallback 30')
     parser.add_argument('--no_shots', action='store_true',
                         help='不做投籃偵測（--sam3_tracks 的 pkl 有 shot_sam3 時預設會做）')
+    parser.add_argument('--team_prior', default=None,
+                        help='重新追蹤（片頭剪掉重跑、編號已換回舊的）時給舊的 events.pkl：分隊不確定（35~65%）的人沿用舊結果的分隊')
     parser.add_argument('--no_possession', action='store_true',
                         help='持球者不用 SAM3 追球 + Viterbi，只用 handler_detector（pkl 有 shot_sam3 時預設用 Viterbi）')
     parser.add_argument('--sam3_tracks', default=None,
@@ -1447,6 +1449,12 @@ def main():
             frames, player_tracks, read_from_stub=use_stub,
             stub_path=os.path.join(args.stub_dir, 'player_assignment_stub.pkl'),
         )
+
+    if args.team_prior:
+        from team_fix import inherit_uncertain_teams
+        import pickle as _pk
+        player_assignment, _kept = inherit_uncertain_teams(player_assignment, _pk.load(open(args.team_prior, 'rb'))['player_assignment'])
+        print(f"  分隊不確定、沿用舊結果：{_kept}")
 
     # ── 時間平滑 handler（YOLO 偵測可能還有少數漏抓，用多數決補）─────────────
     # DEBUG：印平滑「前」的 raw pid 分布 + 非主要持球者出現在哪些幀（查射手接球）
