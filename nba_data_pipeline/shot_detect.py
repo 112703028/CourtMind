@@ -165,9 +165,10 @@ def map_ids(shot_sam3, player_tracks):
     return {p: c.most_common(1)[0][0] for p, c in votes.items()}
 
 
-def detect_shots(shot_sam3, frames, rf, player_tracks=None, grid_prefix=None):
-    """grid_prefix：給了就為每次出手存籃框放大圖 <prefix>_shot<i>.jpg（本機 tactics 用 VLM 判進球）。"""
-    cuts = find_cuts(frames)
+def detect_shots(shot_sam3, frames, rf, player_tracks=None, grid_prefix=None, start_frame=0):
+    """grid_prefix：給了就為每次出手存籃框放大圖 <prefix>_shot<i>.jpg（本機 tactics 用 VLM 判進球）。
+    start_frame：片頭剪掉的保留點（run_sam3_tracks 的 start_frame）→ 之前的切點（前一段畫面接進來那刀）不算。"""
+    cuts = [c for c in find_cuts(frames) if c > (start_frame or 0)]
     shots, tch = detect_core(shot_sam3, rf, cuts, frames[0].shape[:2], len(frames), player_tracks)
     if grid_prefix is not None:
         for i, sh in enumerate(shots):

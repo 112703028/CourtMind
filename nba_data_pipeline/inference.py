@@ -1660,7 +1660,8 @@ def main():
         from shot_detect import run_rf, detect_shots
         rf = rf if rf is not None else run_rf(frames, fps)
         shots, cuts = detect_shots(_sam3['shot_sam3'], frames, rf, player_tracks,
-                                   grid_prefix=os.path.splitext(args.output_video)[0])   # 籃框放大圖 → 本機 VLM 判進球
+                                   grid_prefix=os.path.splitext(args.output_video)[0],   # 籃框放大圖 → 本機 VLM 判進球
+                                   start_frame=_sam3.get('start_frame') or 0)
         print(f"  鏡頭切點 {[_fmt(c) for c in cuts]}；出手 {len(shots)} 次")
         for sh in shots:
             print(f"    {_fmt(sh['release_frame'])} #{sh['shooter']} {sh['kind']} "

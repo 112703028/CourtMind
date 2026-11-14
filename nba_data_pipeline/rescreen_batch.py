@@ -16,7 +16,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ROOT = HERE.parent
 sys.path[:0] = [str(HERE), str(ROOT)]
-MODE = 'seq_rescue_final5b_vit2'   # 做過的跳過（換模型 / 持球者來源就換名字）；2026-11-13 持球者改 SAM3 + Viterbi
+MODE = 'seq_rescue_final5b_vit3'   # 做過的跳過（換模型 / 持球者來源就換名字）；2026-11-13 持球者改 SAM3 + Viterbi
 CKPTS = [ROOT / 'nba_data_pipeline' / 'checkpoints' / f'finetune_seq_final5bgru_s{i}_best.pt' for i in (1, 2, 3)]   # 2026-11-13 換 final5b
 
 
