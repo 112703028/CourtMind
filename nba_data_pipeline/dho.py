@@ -95,6 +95,10 @@ def candidates(d, max_air=0.5, hold_a=0.3, hold_b=0.5, max_ft=6.0, near_s=0.5, d
         pg0, pg1, ph = pos(a, f - int(fps)), pos(a, f), pos(a, f - int(fps / 2))
         pr0, pr1 = pos(b, f - int(fps)), pos(b, f)
         rec['v_giver'] = round(_dist(ph, pg1) * 2, 1) if ph is not None and pg1 is not None else None
+        if None in (pg0, pr0):          # 交接前 1 秒沒座標（160 / 463：片頭、追蹤斷掉）→ 用交接前 1 ~ 0.3 秒裡最早有兩人座標的那張
+            g = next((g for g in range(max(0, f - int(fps)), f - int(0.3 * fps))
+                      if _pos_med(cc, a, g, 1) is not None and _pos_med(cc, b, g, 1) is not None), None)
+            pg0, pr0 = (_pos_med(cc, a, g, 1), _pos_med(cc, b, g, 1)) if g is not None else (None, None)
         rec['approach_ft'] = round(_dist(pg0, pr0) - _dist(pg1, pr1), 1) if None not in (pg0, pg1, pr0, pr1) else None
         out.append(rec)
     return out
