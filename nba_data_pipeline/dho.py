@@ -16,6 +16,8 @@ dho.py — 手遞手（DHO，dribble hand-off）第 2 版（2026-11-15）：用�
 
 用法：python nba_data_pipeline/dho.py                 # 種子有沒有抓到 + 476 支候選數
      python nba_data_pipeline/dho.py score           # 跟人工標記比
+     python nba_data_pipeline/dho.py add <events.pkl> <sam3.pkl> <touch.pkl> <pose.pkl>   # 手腕證據 → dho_hands（run_pipeline.sh 第 3 步）
+     python nba_data_pipeline/dho.py add_batch       # 批次 476 支
      python nba_data_pipeline/dho.py sheet           # → output_videos/dho_check/dho_check.csv + 每支片段的編號 / 影格影片
 """
 import sys
@@ -104,17 +106,77 @@ def candidates(d, max_air=0.5, hold_a=0.3, hold_b=0.5, max_ft=6.0, near_s=0.5, d
     return out
 
 
-def is_dho(p, a_min=0.0, vg_max=12.0, hb_min=0.8):
+def is_dho(p, a_min=0.0, vg_max=12.0, hb_min=0.8, hands=None, hands_yes=0.15, hands_no=0.75):
     """接球者交接前 1 秒有靠近給球者（≥ a_min 呎）、給球者交接前 0.5 秒 ≤ vg_max 呎/秒、接球者持球 ≥ hb_min 秒、
     有擋拆事件的話撞上不能在交接前（378 / 401：先擋再傳 = 一般擋拆）。
-    42 個標記上：選 13、對 11（85%）、15 個真的抓到 11（同一份標記上調的，實際會低一點）；三種原始分類 10/15、3/12、2/15。"""
-    return (p['approach_ft'] is not None and p['approach_ft'] >= a_min and p['v_giver'] is not None and p['v_giver'] <= vg_max
-            and p['hold_b_s'] >= hb_min and p.get('event_frame', p['frame']) >= p['frame'])
+    hands = 交接 ±0.4 秒內「兩人手腕離球比較遠的那個」最小值（身高倍數，hands_feature）：≤ hands_yes 兩人手同時在球上 → 不看靠近 / 速度
+    （148 接球者從旁邊繞來）；> hands_no 手離球很遠 → 不是（413）。42 個標記上沒有假的 ≤ 0.15、沒有真的（有判到的）> 0.75。"""
+    if p.get('event_frame', p['frame']) < p['frame'] or p['hold_b_s'] < hb_min:
+        return False
+    if hands is not None and hands > hands_no:
+        return False
+    if hands is not None and hands <= hands_yes:
+        return True
+    return p['approach_ft'] is not None and p['approach_ft'] >= a_min and p['v_giver'] is not None and p['v_giver'] <= vg_max
 
 
 def detect(d, **prm):
-    """→ 判定是手遞手的候選（tactics_agent / tactics_tools 用）。"""
-    return [p for p in candidates(d) if is_dho(p, **prm)]
+    """→ 判定是手遞手的候選（tactics_agent / tactics_tools 用）；d['dho_hands']（hands_feature 寫進去的）有就用。"""
+    hd = d.get('dho_hands') or {}
+    return [p for p in candidates(d) if is_dho(p, hands=hd.get((p['giver'], p['receiver'], p['frame'])), **prm)]
+
+
+def hands_feature(d, s, tch, pose, win_s=0.4):
+    """每個候選：交接 ±win_s 秒內兩人手腕離球比較遠的那個的最小值（身高倍數）→ {(giver, receiver, frame): 值 or None}。
+    s = sam3 pkl 的 shot_sam3、tch = possession_sam3 prep 的碰球、pose = pose_hands 的手腕骨架（編號是 shot_sam3 的，用 map_ids 對回來）。"""
+    import numpy as np
+    import pose_pass as PP
+    from shot_detect import map_ids
+    H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()]))
+    inv = {}
+    for q, v in map_ids(s, d['player_tracks']).items():
+        inv.setdefault(v, q)
+    fi, fps = s['frame_idx'], s['orig_fps']
+    out = {}
+    for p in candidates(d):
+        A, B, f = inv.get(p['giver']), inv.get(p['receiver']), p['frame']
+        both = []
+        for i in range(min(len(fi), len(pose), len(tch))):
+            if not (f - win_s * fps <= fi[i] <= f + win_s * fps):
+                continue
+            cen = tch[i][1]
+            if cen is None or A not in pose[i] or B not in pose[i]:
+                continue
+            da, db = PP.hand_dist(pose[i][A], cen, H), PP.hand_dist(pose[i][B], cen, H)
+            if da is not None and db is not None:
+                both.append(max(da, db))
+        out[(p['giver'], p['receiver'], f)] = round(min(both), 2) if both else None
+    return out
+
+
+def add(pkl, sam3_pkl, touch_pkl, pose_pkl):
+    """把手腕證據寫進 events.pkl 的 dho_hands（run_pipeline.sh 第 3 步傳球之後）。"""
+    d = pickle.load(open(pkl, 'rb'))
+    s = pickle.load(open(sam3_pkl, 'rb'))['shot_sam3']
+    _, _, tch = pickle.load(open(touch_pkl, 'rb'))
+    d['dho_hands'] = hands_feature(d, s, tch, pickle.load(open(pose_pkl, 'rb')))
+    pickle.dump(d, open(pkl, 'wb'))
+    print(f'手遞手：候選 {len(d["dho_hands"])} 個、判定 {len(detect(d))} 個')
+
+
+def add_batch():
+    n = 0
+    for pk in _clips():
+        c = Path(pk).stem.replace('_events', '')
+        need = [ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{c}_touch.pkl',
+                ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl']
+        if all(x.exists() for x in need):
+            d = pickle.load(open(pk, 'rb'))
+            if candidates(d):
+                d['dho_hands'] = hands_feature(d, pickle.load(open(need[0], 'rb'))['shot_sam3'],
+                                               pickle.load(open(need[1], 'rb'))[2], pickle.load(open(need[2], 'rb')))
+                pickle.dump(d, open(pk, 'wb')); n += 1
+    print(f'{n} 支寫入 dho_hands')
 
 
 def with_dho(d):
@@ -152,9 +214,11 @@ def score():
     lab = {(r['clip'], int(r['交接影格'])): r['手遞手嗎(t/f/?)'].strip() for r in csv.DictReader(open(OUT / 'dho_check.csv', encoding='utf-8-sig'))}
     sel = tp = 0
     for c in sorted({c for c, _ in lab}):
-        for p in candidates(pickle.load(open(BATCH / f'{c}_events.pkl', 'rb'))):
+        d = pickle.load(open(BATCH / f'{c}_events.pkl', 'rb'))
+        hd = d.get('dho_hands') or {}
+        for p in candidates(d):
             t = lab.get((c, p['frame']))
-            if t and is_dho(p):
+            if t and is_dho(p, hands=hd.get((p['giver'], p['receiver'], p['frame']))):
                 sel += 1; tp += t == 't'
     n = sum(v == 't' for v in lab.values())
     print(f'標記 {len(lab)} 個（真的 {n}）：判定手遞手 {sel}、對 {tp}（{tp / max(1, sel):.0%}）、抓到 {tp}/{n}')
@@ -207,5 +271,9 @@ if __name__ == '__main__':
         sheet()
     elif sys.argv[1:2] == ['score']:
         score()
+    elif sys.argv[1:2] == ['add'] and len(sys.argv) == 6:
+        add(*sys.argv[2:6])
+    elif sys.argv[1:2] == ['add_batch']:
+        add_batch()
     else:
         main()
