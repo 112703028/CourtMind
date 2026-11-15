@@ -1687,6 +1687,9 @@ def main():
         data['court_coords'], nflip = deflicker_court_coords(data['court_coords'])
     else:
         nflip = 0
+    # 1.5 手遞手（dho.py）：對到的擋拆事件標 dho、ScreenNet 漏的補事件
+    from dho import with_dho, is_dho_screen
+    data['events'] = with_dho(data)
     # 2. 合併 SAM2 ID swap（#9/#10 這種同一人兩 id）
     data['court_coords'], data['player_assignment'], data['events'], pairs = \
         merge_swapped_ids(data['court_coords'], data['player_assignment'], data['events'])
@@ -1715,8 +1718,9 @@ def main():
         print(f"── 事件 #{i}  [{_fmt(f0)}~{_fmt(f1)}]  持球 #{H}  【{kind}, {len(g)}次擋】──{seg}")
         for j, it in enumerate(g, 1):
             fa = analyze_screen_instance(it, data, handler_team, basket)
+            dho_tag = "【手遞手】" if is_dho_screen(data['events'], it['screener_id'], H, it['frame'], fps) else ""
             print(f"  擋{j}: #{fa['screener_id']} 擋防守者#{fa['screened_defender']}"
-                  f"(接觸{fa['contact_dist']}ft)  @{_fmt(fa['screen_frame'])}")
+                  f"(接觸{fa['contact_dist']}ft)  @{_fmt(fa['screen_frame'])}{dho_tag}")
             print(f"        {fa['region']} | {action_zh.get(fa['action'])}"
                   f"({fa['action_delta_ft']:+.1f}ft) | 防守={fa['coverage']}"
                   f"[{fa['coverage_confidence']}]")

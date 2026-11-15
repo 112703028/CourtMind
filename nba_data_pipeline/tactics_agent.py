@@ -119,6 +119,7 @@ def t_list_screens(ctx):
     """列出這球所有偵測到的擋拆 + 規則算好的事實（掩護者/擋誰/roll-pop/coverage）。"""
     from tactics_tools import (find_screen_instances, group_screen_events,
                                analyze_screen_instance, segment_of)
+    from dho import is_dho_screen
     inst = find_screen_instances(ctx['cc'], ctx['pa'], ctx['events'])
     groups = group_screen_events(inst, cuts=ctx.get('cuts'))
     data_like = {'court_coords': ctx['cc'], 'player_assignment': ctx['pa'], 'fps': ctx['fps'],
@@ -136,7 +137,9 @@ def t_list_screens(ctx):
                             "handler_action": fa["details"]["handler"],
                             "help": fa["details"]["help"],
                             "open_looks": fa["details"]["open_looks"],
-                            "offball": fa["details"]["offball"]})
+                            "offball": fa["details"]["offball"],
+                            # 手遞手（dho.py）：掩護者先把球手遞給持球者、再直接當掩護
+                            "dho": is_dho_screen(ctx['events'], it['screener_id'], it['handler_id'], it['frame'], ctx['fps'])})
         # 結構標籤：讓 LLM 直接有正確的戰術詞，不用自己編
         frames = [it['frame'] for it in g]
         if len(g) == 1:
@@ -148,6 +151,8 @@ def t_list_screens(ctx):
         # 規則偵測到「掩護掩護者」（第三人撞守掩護者的防守者、掩護者順下）→ 直接標西班牙擋拆，不讓 LLM 猜
         if any('西班牙' in (o.get('screen') or {}).get('kind', '') for sc in screens for o in sc['offball']):
             ptype += " + Spain PnR（西班牙擋拆：有人掩護了守掩護者的防守者）"
+        if any(sc['dho'] for sc in screens):
+            ptype += " + DHO（手遞手掩護：掩護者先把球手遞給持球者，交球的同時當掩護）"
         last = analyze_screen_instance(g[-1], data_like, ctx['handler_team'], ctx['basket'])
         out.append({"event": i,
                     "time_s": round(min(frames) / ctx['fps'], 1),
@@ -348,6 +353,10 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
     用跑位串起戰術：例如「#3 先背擋 #6 再拉到三分線，接到 #2 的傳球」。「原地附近」的人通常不用提。
   - 這些細節不要寫成數字報表；挑最能說明這球的 2~3 個講，用自然的轉播語氣。
 
+手遞手（screens[].dho = true）：
+  - 這次掩護是手遞手（DHO）：掩護者原本持球，把球直接手遞給跑過來的持球者，交球的同時用身體擋住持球者的防守者。
+    要講出「手遞手」，例如「#5 把球手遞給 #4 順勢擋住 #9」；不要說成一般的擋拆或傳球。
+
 背號（jerseys）：
   - jerseys 是「追蹤編號 → 背號」，只列有把握認出的人。提到這些球員時第一次寫「#3（背號 22）」，之後可以說「22 號」；
     沒列的人只用追蹤編號，不要猜背號，也不要說「背號不明」。
@@ -409,7 +418,8 @@ def run_agent(question, ctx, model="gpt-4o", max_steps=10, verbose=True):
 def build_ctx(data, frame_hint=None, handler=None):
     """前置：de-flicker + ID-merge，算籃框，打包成工具用的 context。"""
     cc, _ = deflicker_court_coords(data['court_coords'])
-    cc, pa, events, _ = merge_swapped_ids(cc, data['player_assignment'], data['events'])
+    from dho import with_dho        # 手遞手：對到的擋拆事件標 dho、ScreenNet 漏的補事件
+    cc, pa, events, _ = merge_swapped_ids(cc, data['player_assignment'], with_dho(data))
     n = len(cc)
     # 籃框：用 frame 附近一段推（半場進攻的重心決定哪個籃框）
     if frame_hint is not None:
