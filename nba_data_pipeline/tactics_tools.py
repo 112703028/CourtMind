@@ -1698,6 +1698,9 @@ def main():
     if data.get('passes') is not None:
         np_ = sum(p['kind'] == 'pass' for p in data['passes'])
         print(f"傳球偵測（手腕）：整段 {np_} 次傳球、{len(data['passes']) - np_} 次換隊")
+    if data.get('jersey'):
+        js = {p: r['num'] for p, r in sorted(data['jersey'].items()) if r.get('use')}
+        print(f"背號（高信心）：{'、'.join(f'#{p}={n}' for p, n in js.items()) or '無'}")
     print(f"原始 {len(data['events'])} 事件 → {len(instances)} 次擋 → {len(groups)} 個擋拆事件  "
           f"(de-flicker {nflip}幀, ID-merge {pairs}, thr={args.contact_thr}ft, fps={fps:.1f})\n")
 

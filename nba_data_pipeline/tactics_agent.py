@@ -157,7 +157,9 @@ def t_list_screens(ctx):
                     # 這波擋拆之後的出手結果（投籃偵測）；None = 沒有投籃資料
                     "outcome": last['outcome'],
                     # 擋拆後到出手 / 下一次擋拆前的傳球（手腕偵測）；None = 沒有傳球資料
-                    "passes_after": last['passes_after']})
+                    "passes_after": last['passes_after'],
+                    # 背號（jersey_ocr.py，只列高信心且同隊沒撞號的）：追蹤編號 → 背號
+                    "jerseys": ctx.get('jersey') or {}})
     return out
 
 
@@ -346,6 +348,10 @@ SYSTEM = """你是專業籃球轉播主播兼戰術分析師。你要針對一�
     用跑位串起戰術：例如「#3 先背擋 #6 再拉到三分線，接到 #2 的傳球」。「原地附近」的人通常不用提。
   - 這些細節不要寫成數字報表；挑最能說明這球的 2~3 個講，用自然的轉播語氣。
 
+背號（jerseys）：
+  - jerseys 是「追蹤編號 → 背號」，只列有把握認出的人。提到這些球員時第一次寫「#3（背號 22）」，之後可以說「22 號」；
+    沒列的人只用追蹤編號，不要猜背號，也不要說「背號不明」。
+
 鏡頭段落（camera_segment）：
   - 影片常是精華剪輯，鏡頭切換後通常是「下一球」甚至另一場比賽，不是同一回合。
   - camera_segment 不同的擋拆要分開講（「下一個片段」「接著另一個回合」），不要串成同一波戰術（例如「第二波」「再發動」）、
@@ -413,7 +419,8 @@ def build_ctx(data, frame_hint=None, handler=None):
     basket = infer_target_basket(cc, s, e)
     return {'cc': cc, 'pa': pa, 'basket': basket, 'handler_team': 1,
             'fps': data.get('fps', 30.0), 'events': events, 'handler': handler,
-            'shots': data.get('shots'), 'cuts': data.get('cuts'), 'passes': data.get('passes')}
+            'shots': data.get('shots'), 'cuts': data.get('cuts'), 'passes': data.get('passes'),
+            'jersey': {f'#{p}': r['num'] for p, r in (data.get('jersey') or {}).items() if r.get('use')}}
 
 
 def main():

@@ -286,7 +286,7 @@ SAM3 單獨在 sam3_env 跑、dump player_tracks（同 SAM2 格式 `list[dict[pi
 - 重新標多 screener 的 clip 補資料
 
 ### 長期
-- Jersey number OCR（Roboflow notebook 有用）→ 認球員身份不只認隊伍
+- Jersey number OCR：2026-11-15 已上線（`jersey_ocr.py`，高信心 34/34、涵蓋 62%）；下一步可接球員名單 → 認出是誰
 - 整合 fast break / shot quality 等其他偵測模組
 - ScreenNet 若分析層優化後仍常出錯，考慮重訓成「事件定位」（temporal localization，標籤只在接觸幀附近為正，輸出變尖峰可直接 peak detection）——工作量約 1-2 週且不保證一次收斂，優先度低於分析層修法
 
@@ -437,6 +437,8 @@ python nba_data_pipeline/tactics_tools.py output_videos/e2e/screen_123_events.pk
 #   python nba_data_pipeline/possession_sam3.py prep <影片> <sam3.pkl> <touch.pkl>
 #   python nba_data_pipeline/pose_hands.py --ball_pkl <sam3.pkl> --video <影片> --out <pose.pkl>
 #   python nba_data_pipeline/pose_pass.py add <events.pkl> <sam3.pkl> <touch.pkl> <pose.pkl> <影片>
+# 背號（本機，要 .env 的 LLM 金鑰）：Roboflow 背號框 → 每人裁圖 → gpt-5.5 讀 → 只用高信心 + 同隊不撞號 → events.pkl 的 jersey（主播會說「#3（背號 22）」）
+python nba_data_pipeline/jersey_ocr.py add output_videos/e2e/screen_123_events.pkl input_videos/screen/screen_123.mp4
 # 主播解說（LLM 走 .env 的 MYAI168 轉接，預設 gpt-5.5）
 python nba_data_pipeline/tactics_agent.py output_videos/e2e/screen_123_events.pkl
 ```
