@@ -29,7 +29,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split, WeightedRandomSampler, Subset
 from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score, average_precision_score
 
-from model import ScreenNetClassifier, ScreenNetPairwise, N_PAIRS, to_handler_relative
+from model import ScreenNetClassifier, ScreenNetPairwise, N_PAIRS, N_OFFENSE, to_handler_relative
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -324,6 +324,9 @@ def main():
                         help='學習曲線：訓練 clip 只用這個比例（val 不變）')
     parser.add_argument('--no_pretrain', action='store_true',
                         help='對照組：不載入 --pretrain_ckpt 的權重（仍讀它的 d_model 等設定）')
+    parser.add_argument('--mask_offpairs', action='store_true',
+                        help='只算持球者那 4 組（pair (0, j)）的 loss，其他 16 組遮掉不當負例'
+                             '（標記只有持球擋拆 → 片段裡沒標的無球掩護不再被教成「不是掩護」）')
     parser.add_argument('--rel_coords', action='store_true',
                         help='座標改成以持球者為原點（跟預訓練一致）；存進 ckpt data_meta，'
                              'eval_contact / inference 讀到會自動套用')
@@ -481,6 +484,15 @@ def main():
         scalar_pw = n_neg / max(n_pos, 1)
         pos_weight = torch.tensor([scalar_pw], dtype=torch.float32).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if args.pairwise and args.mask_offpairs:
+        # pair_index(i, j) 順序 = for i: for j != i → i = 0（持球者）是前 4 組
+        pair_mask = torch.zeros(N_PAIRS, device=device)
+        pair_mask[:N_OFFENSE - 1] = 1.0
+        _bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction='none')
+
+        def criterion(logits, label):
+            return (_bce(logits, label) * pair_mask).sum() / (pair_mask.sum() * len(logits))
+        print('mask_offpairs：只算持球者那 4 組的 loss')
 
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr

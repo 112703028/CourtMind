@@ -58,9 +58,11 @@ def main():
     ap.add_argument('--workers', type=int, default=5)
     ap.add_argument('--threads', type=int, default=4, help='每個 worker 的 torch 執行緒數')
     ap.add_argument('--tags', default='cleanall,pose', help='要比的兩個版本（第一個 = 基準）')
+    ap.add_argument('--seeds', default='1,2,3,4,5', help='用哪幾個種子（本機 CPU 跑不動 5 個時用 1,2,3）')
     args = ap.parse_args()
-    global TAGS
+    global TAGS, SEEDS
     TAGS = tuple(args.tags.split(','))
+    SEEDS = tuple(int(x) for x in args.seeds.split(','))
     curves = pickle.load(open(CACHE, 'rb')) if CACHE.exists() else {}
     for t in TAGS:                                   # finetune_seq.py 的整段模型：訓練時已算好曲線
         if t.startswith('seq'):
@@ -89,6 +91,8 @@ def main():
         for t in THRS:
             tp = fp = fn = 0
             for cid, cv in per_clip.items():
+                if cid not in gts:                           # 被 exclude 的片段（443）不考
+                    continue
                 vs, g = gts[cid]
                 pk = [f for c in cv.values() for f, s in find_peaks(c, t, NMS) if f >= vs]
                 used = set()
@@ -116,10 +120,10 @@ def main():
             r = res[tag]
             th = np.array(list(r[('three', tol)].values()))
             print(f'  {NAME.get(tag, tag):10s} 單一模型 {np.mean(r[("single", tol)]):.3f}（{" / ".join(f"{x:.3f}" for x in r[("single", tol)])}）'
-                  f'   5 個平均 {r[("five", tol)]:.3f}   3 個平均（10 種組合）{th.mean():.3f}（{th.min():.3f} ~ {th.max():.3f}）')
+                  f'   5 個平均 {r[("five", tol)]:.3f}   3 個平均（{len(th)} 種組合）{th.mean():.3f}（{th.min():.3f} ~ {th.max():.3f}）')
         diffs = [res[new][('three', tol)][cb] - res[base][('three', tol)][cb] for cb in res[new][('three', tol)]]
         win = sum(d > 0 for d in diffs)
-        print(f'  同一組種子比較：{NAME.get(new, new)} 在 {win}/10 種 3 個平均組合裡贏；'
+        print(f'  同一組種子比較：{NAME.get(new, new)} 在 {win}/{len(diffs)} 種 3 個平均組合裡贏；'
               f'差距 平均 {np.mean(diffs):+.3f}（{min(diffs):+.3f} ~ {max(diffs):+.3f}）')
 
 
