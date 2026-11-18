@@ -18,6 +18,7 @@ dho.py — 手遞手（DHO，dribble hand-off）第 2 版（2026-11-15）：用�
      python nba_data_pipeline/dho.py score           # 跟人工標記比
      python nba_data_pipeline/dho.py add <events.pkl> <sam3.pkl> <touch.pkl> <pose.pkl>   # 手腕證據 → dho_hands（run_pipeline.sh 第 3 步）
      python nba_data_pipeline/dho.py add_batch       # 批次 476 支
+     python nba_data_pipeline/dho.py cv              # 分類器 vs 人工門檻（交叉驗證）
      python nba_data_pipeline/dho.py sheet           # → output_videos/dho_check/dho_check.csv + 每支片段的編號 / 影格影片
 """
 import sys
@@ -224,6 +225,75 @@ def score():
     print(f'標記 {len(lab)} 個（真的 {n}）：判定手遞手 {sel}、對 {tp}（{tp / max(1, sel):.0%}）、抓到 {tp}/{n}')
 
 
+FEATS = ['approach_ft', 'v_giver', 'hold_b_s', 'hands', 'air_s', 'min_ft', 'hold_a_s']
+
+
+def feat_row(p, hands):
+    """候選 → 特徵向量（缺值補中位數在 classifier_cv 做；另加「有沒有手腕證據」「有沒有擋拆事件」「撞上在交接前」）。"""
+    v = [p.get('approach_ft'), p.get('v_giver'), p['hold_b_s'], hands, p['air_s'], p['min_ft'], p['hold_a_s']]
+    lag = p.get('event_frame', p['frame']) - p['frame']
+    return v + [float(hands is not None), float(p['kind'] == 'screen_event'), float(lag < 0)]
+
+
+def labeled_rows():
+    """人工標過的候選 → (X, y, 名稱)"""
+    import numpy as np
+    lab = {(r['clip'], int(r['交接影格'])): r['手遞手嗎(t/f/?)'].strip()
+           for r in csv.DictReader(open(OUT / 'dho_check.csv', encoding='utf-8-sig'))}
+    X, y, names = [], [], []
+    for c in sorted({c for c, _ in lab}):
+        d = pickle.load(open(BATCH / f'{c}_events.pkl', 'rb'))
+        hd = d.get('dho_hands') or {}
+        for p in candidates(d):
+            t = lab.get((c, p['frame']))
+            if t in ('t', 'f'):
+                X.append(feat_row(p, hd.get((p['giver'], p['receiver'], p['frame']))))
+                y.append(t == 't'); names.append(f"{c}@{p['frame']}")
+    return np.array(X, dtype=float), np.array(y), names
+
+
+def classifier_cv(repeats=20):
+    """A：人工門檻 vs 分類器（羅吉斯迴歸 / 淺層決策樹 / 隨機森林），留一法 + 重複分層 5 折。"""
+    import numpy as np
+    from sklearn.pipeline import make_pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import LeaveOneOut, RepeatedStratifiedKFold, cross_val_predict
+    from sklearn.metrics import roc_auc_score
+    X, y, names = labeled_rows()
+    print(f'{len(y)} 個候選、真的 {int(y.sum())} 個')
+    models = {
+        '羅吉斯迴歸': make_pipeline(SimpleImputer(strategy='median'), StandardScaler(),
+                               LogisticRegression(C=0.5, class_weight='balanced', max_iter=1000)),
+        '決策樹（深 2）': make_pipeline(SimpleImputer(strategy='median'),
+                                  DecisionTreeClassifier(max_depth=2, class_weight='balanced', random_state=0)),
+        '隨機森林': make_pipeline(SimpleImputer(strategy='median'),
+                              RandomForestClassifier(200, max_depth=3, min_samples_leaf=2, class_weight='balanced', random_state=0)),
+    }
+
+    def stat(pred):
+        tp = int((pred & y).sum()); fp = int((pred & ~y).sum()); fn = int((~pred & y).sum())
+        return tp, fp, fn, 2 * tp / max(1, 2 * tp + fp + fn)
+    for name, m in models.items():
+        prob = cross_val_predict(m, X, y, cv=LeaveOneOut(), method='predict_proba')[:, 1]
+        tp, fp, fn, f1 = stat(prob >= 0.5)
+        f1s = []
+        for r in range(repeats):
+            pr = cross_val_predict(m, X, y, cv=RepeatedStratifiedKFold(n_splits=5, n_repeats=1, random_state=r), method='predict_proba')[:, 1]
+            f1s.append(stat(pr >= 0.5)[3])
+        print(f'{name}：留一法 判定 {tp + fp}、對 {tp}（{tp / max(1, tp + fp):.0%}）、抓到 {tp}/{tp + fn}、F1 {f1:.2f}、AUC {roc_auc_score(y, prob):.2f}'
+              f'｜5 折 × {repeats} 次 F1 {np.mean(f1s):.2f} ± {np.std(f1s):.2f}')
+        if name == '羅吉斯迴歸':
+            m.fit(X, y)
+            coef = m[-1].coef_[0]
+            names_f = FEATS + ['有手腕證據', '有擋拆事件', '撞上在交接前']
+            print('   係數（標準化後，正 = 越像手遞手）：', '、'.join(f'{n} {c:+.2f}' for n, c in sorted(zip(names_f, coef), key=lambda z: -abs(z[1]))))
+            print('   留一法判錯：', [names[i] for i in range(len(y)) if (prob[i] >= 0.5) != y[i]])
+
+
 def _clips():
     return sorted(glob.glob(str(BATCH / 'screen_*_events.pkl')), key=lambda x: int(Path(x).stem.split('_')[1]))
 
@@ -275,5 +345,7 @@ if __name__ == '__main__':
         add(*sys.argv[2:6])
     elif sys.argv[1:2] == ['add_batch']:
         add_batch()
+    elif sys.argv[1:2] == ['cv']:
+        classifier_cv()
     else:
         main()
