@@ -374,14 +374,17 @@ def run_fixteam(args):
 
 # ── build：快取 → 滑窗 + 軟標籤 ────────────────────────────────────────────────
 
-def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=False, pose=False, poss=None):
+def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=False, pose=False, poss=None,
+                  holder_ch=False, with_dho=False):
     """anchor：標籤記在窗口第幾格（0~9）。3 = 接觸前看 3 張（0.6 秒）、接觸後看 6 張（1.2 秒）。
     推論時要用同一個 anchor 把窗口分數對回影格。
     clean：先用 tactics_tools.clean_court_tracks 清座標（鏡像閃爍 / 壞影格 / 單人尖刺）；
            clean=2 再加「個人短缺口（≤6 張 = 1.2 秒）前後內插」。
     pose：每人每張在 x, y 後面接 6 個姿態 / 遮罩通道（pose_features.channels）→ traj (10, 10, 8)。
     poss：逐張持球者（possession.holders，快取 pid）。窗內拿球最多的進攻球員 ≠ handler_tid 時，
-          多產生一組「以他為持球者」的排法（原本的排法保留；候選人不含原 handler，候選範圍不變）。"""
+          多產生一組「以他為持球者」的排法（原本的排法保留；候選人不含原 handler，候選範圍不變）。
+    holder_ch：c['holder']（逐張持球者 pid 或 None）→ 每人每張多一個通道「此刻是不是他拿球」（手遞手要看球換手，2026-11-19）。
+    with_dho：events 有 dho=True 的另算一組手遞手目標 → 回 (traj, pw, pw_dho, center)（預設回 (traj, pw, center)）。"""
     n, ct, raw, team = c['n'], c['court_tracks'], c['raw_tracks'], c['track_team']
     if clean:
         from tactics_tools import clean_court_tracks
@@ -410,9 +413,13 @@ def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=F
 
         # 每個 screener 的目標 = 它所有接觸幀的高斯取最大（沒撞到的掩護用較寬的 σ）
         tgt = collections.defaultdict(float)
+        tgt_dho = collections.defaultdict(float)
         for e in ev:
             s = sigma if e['contact'] else sigma_nc
-            tgt[e['tid']] = max(tgt[e['tid']], math.exp(-((center - e['idx']) ** 2) / (2 * s * s)))
+            g = math.exp(-((center - e['idx']) ** 2) / (2 * s * s))
+            tgt[e['tid']] = max(tgt[e['tid']], g)
+            if e.get('dho'):
+                tgt_dho[e['tid']] = max(tgt_dho[e['tid']], g)
 
         handlers = [H]
         if poss is not None:
@@ -472,7 +479,20 @@ def build_windows(c, sigma, sigma_nc, min_target, anchor=3, rotate=True, clean=F
                     import pose_features
                     ch = pose_features.channels(pf, range(start, start + SEQ_LEN), order, Hh, order_off[1])
                     traj = np.concatenate([traj, ch], axis=-1)
-                out.append((traj, pw, center))
+                if holder_ch:
+                    hd = c.get('holder') or [None] * n
+                    ch = np.array([[[1.0 if (p is not None and hd[start + k] == p) else 0.0] for k in range(SEQ_LEN)]
+                                   for p in order], dtype=np.float32)
+                    traj = np.concatenate([traj, ch], axis=-1)
+                if with_dho:
+                    pwd = np.zeros(20, dtype=np.float32)
+                    for slot in range(1, N_OFF):
+                        p = order_off[slot]
+                        if p is not None and tgt_dho.get(p, 0) >= min_target:
+                            pwd[pair_index(0, slot)] = tgt_dho[p]
+                    out.append((traj, pw, pwd, center))
+                else:
+                    out.append((traj, pw, center))
     return out
 
 

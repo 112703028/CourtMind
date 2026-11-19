@@ -53,13 +53,21 @@ def load_game(name):
         return json.load(open(os.path.join(tmp, f)))
 
 
-def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0, min_hoop=15.0, max_screen=8.0):
+def handoffs_in_event(ev, **prm):
     moms = [m for m in ev.get('moments', []) if len(m[5]) == 11]       # 球 + 10 人都在
     if len(moms) < 20:
         return []
     pms = [parse_moment(m) for m in moms]
-    home, vis = ev['home']['teamid'], ev['visitor']['teamid']
-    hs = find_ball_handler(pms, home, vis)
+    hs = find_ball_handler(pms, ev['home']['teamid'], ev['visitor']['teamid'])
+    out = handoffs_from_parsed(pms, hs, **prm)
+    for h in out:
+        m = moms[h['idx']]
+        h.update(period=m[0], game_clock=round(m[2], 2), shot_clock=m[3], event_id=ev['eventId'])
+    return out
+
+
+def handoffs_from_parsed(pms, hs, max_air=0.5, min_hold=0.4, pingpong=1.0, min_hoop=15.0, max_screen=8.0):
+    """parse_moment 後的連續影格 + find_ball_handler → 手遞手 [{idx, giver, receiver, team, ...}]（nba_dho_data 也用）。"""
     # 持球段
     runs, cur = [], None
     for i, h in enumerate(hs):
@@ -90,7 +98,6 @@ def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0, min_hoop=15.0
         if not ds or min(ds) >= HANDOFF_DIST:
             continue
         k = (b1 + a2) // 2
-        m = moms[k]
         # 使用者看 30 個（2026-11-19）：只有 NETS 規則 17/30 真；假的多在禁區（低位餵球 / 籃板 / 背框交還）或給球者沒擋到人
         # → 交接位置離最近籃框 ≥ min_hoop 呎、給球者 ±1 秒內貼到「不是守他的」防守者 ≤ max_screen 呎（手遞手 = 交球 + 掩護）
         if A[0] not in pms[k]['players']:
@@ -106,8 +113,7 @@ def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0, min_hoop=15.0
                    if q != own and A[0] in pms[i]['players'] and q in pms[i]['players']), default=99)
         if hoop < min_hoop or scr > max_screen:
             continue
-        out.append(dict(period=m[0], game_clock=round(m[2], 2), shot_clock=m[3], event_id=ev['eventId'], idx=k,
-                        giver=A[0], receiver=B[0], team=A[1], gap_s=round(max(gap, 0), 2), dist_ft=round(min(ds), 1),
+        out.append(dict(idx=k, giver=A[0], receiver=B[0], team=A[1], gap_s=round(max(gap, 0), 2), dist_ft=round(min(ds), 1),
                         hold_a_s=round((b1 - a1 + 1) / FPS, 2), hold_b_s=round((b2 - a2 + 1) / FPS, 2),
                         hoop_ft=round(hoop, 1), screen_ft=round(scr, 1)))
     return out
