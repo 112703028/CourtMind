@@ -38,12 +38,13 @@ def load_model(path):
     ck = torch.load(path, map_location='cpu', weights_only=False)
     in_dim = ck.get('in_dim', 2)
     m = ScreenNetPairwise(ck.get('d_model', 64), ck.get('n_heads', 4), ck.get('n_layers', 2),
-                          **({'in_dim': in_dim} if in_dim != 2 else {}))
+                          **({'in_dim': in_dim} if in_dim != 2 else {}), dho=bool(ck.get('dho')))
     m.load_state_dict(ck['model'])
     m.eval()
     m.rel_coords = bool((ck.get('data_meta') or {}).get('rel_coords'))   # finetune --rel_coords 訓練的
     m.clean_coords = int(round((ck.get('data_meta') or {}).get('clean_coords') or 0))   # 訓練資料清座標的版本 → 評估同一版（2 = 再加短缺口內插）
-    m.pose_feats = in_dim > 2                                            # 訓練資料有姿態通道 → 評估也算
+    m.holder_ch = bool((ck.get('data_meta') or {}).get('holder_ch'))     # 持球通道（build_holder.py）→ 評估也算
+    m.pose_feats = in_dim > 2 and not m.holder_ch                        # 訓練資料有姿態通道 → 評估也算
     m.poss_handler = bool((ck.get('data_meta') or {}).get('poss_handler'))   # 逐窗持球者（possession.py）→ 評估也多一組排法
     m.court_v2 = bool((ck.get('data_meta') or {}).get('court_v2'))           # 球場座標第 2 版（court_v2.py）→ 評估同一版
     m.court_feet = bool((ck.get('data_meta') or {}).get('court_feet'))       # 穩定腳點（court_v2.stable_feet）→ 評估同一版
@@ -107,6 +108,15 @@ def score_curves(model, c, anchor):
         pf = pose_features.load_clip(c)
     curves = collections.defaultdict(dict)
     pidx = pair_index(0, 1)
+    hold = None
+    if getattr(model, 'holder_ch', False):                               # 批次持球者（Viterbi）換成快取 tid
+        import pickle
+        import build_holder as BH
+        bp = BH.BATCH / f"{c['clip']}_events.pkl"
+        if bp.exists():
+            d = pickle.load(open(bp, 'rb'))
+            hold = BH.holder_track(c, d, BH.batch_to_cache(c, d))
+        hold = hold or [None] * n
     poss = None
     if getattr(model, 'poss_handler', False):
         import possession
@@ -144,6 +154,10 @@ def score_curves(model, c, anchor):
                 others = sorted((p for p in off if p not in (Hh, cand)), key=dist_to_h)
                 order_off = ([Hh, cand] + others + [None] * N_OFF)[:N_OFF]
                 tr = window_traj(wc, order_off + order_def)
+                if hold is not None:
+                    ch = np.array([[[1.0 if (p is not None and hold[start + k] == p) else 0.0] for k in range(SEQ_LEN)]
+                                   for p in order_off + order_def], dtype=np.float32)
+                    tr = np.concatenate([tr, ch], axis=-1)
                 if pf is not None:
                     import pose_features
                     tr = np.concatenate([tr, pose_features.channels(pf, range(start, start + SEQ_LEN),

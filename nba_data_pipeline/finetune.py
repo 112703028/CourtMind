@@ -102,17 +102,24 @@ class PairwiseScreenDataset(Dataset):
     """
 
     def __init__(self, npz_paths):
-        trajs_list, roles_list, pw_list, clip_list = [], [], [], []
+        trajs_list, roles_list, pw_list, clip_list, dho_list = [], [], [], [], []
         self.meta = {}
+        self.has_dho = False
         for path in npz_paths:
             data = np.load(path)
             trajs_list.append(data['trajectories'])
             roles_list.append(data['roles'])
             pw_list.append(data['pairwise_labels'])
+            # 手遞手目標（build_holder.py / nba_dho_data.py）：沒有的檔案補 0（= 不是手遞手）
+            if 'pairwise_dho' in data:
+                self.has_dho = True
+                dho_list.append(data['pairwise_dho'])
+            else:
+                dho_list.append(np.zeros_like(data['pairwise_labels']))
             # convert_contact.py 產的資料才有：每窗屬於哪支 clip（按 clip 切 train/val 用）
             if 'clip_ids' in data:
                 clip_list.append(data['clip_ids'])
-            for k in ('anchor', 'sigma', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2', 'court_feet'):
+            for k in ('anchor', 'sigma', 'clean_coords', 'pose_feats', 'poss_handler', 'court_v2', 'court_feet', 'holder_ch'):
                 if k in data:
                     self.meta[k] = float(data[k])
             n_pos = (data['pairwise_labels'].max(axis=1) >= 0.5).sum()
@@ -122,6 +129,8 @@ class PairwiseScreenDataset(Dataset):
         self.trajs    = np.concatenate(trajs_list, axis=0).astype(np.float32)
         self.roles    = np.concatenate(roles_list, axis=0).astype(np.int64)
         self.pw_labels= np.concatenate(pw_list,   axis=0).astype(np.float32)  # (N, 20)，可為軟標籤
+        if self.has_dho:                                                       # (N, 40)：前 20 掩護、後 20 手遞手
+            self.pw_labels = np.concatenate([self.pw_labels, np.concatenate(dho_list).astype(np.float32)], axis=1)
         self.clip_ids = (np.concatenate(clip_list) if len(clip_list) == len(npz_paths) else None)
 
     def __len__(self):
@@ -137,7 +146,7 @@ class PairwiseScreenDataset(Dataset):
     def binary_labels(self):
         """任一對目標 >= 0.5 → 正樣本，供 WeightedRandomSampler 使用。
         （軟標籤的尾巴 0.01~0.4 不算正樣本；舊的 0/1 標籤結果不變）"""
-        return (self.pw_labels.max(axis=1) >= 0.5).astype(np.float32)
+        return (self.pw_labels[:, :20].max(axis=1) >= 0.5).astype(np.float32)
 
 
 def make_weighted_sampler(labels):
@@ -178,8 +187,16 @@ def eval_epoch_pairwise(model, loader, criterion, device, verbose=False):
         all_logits.append(logits.cpu())
         all_labels.append(label.cpu())
 
-    all_logits = torch.cat(all_logits).numpy()   # (N, 20)
-    all_labels = torch.cat(all_labels).numpy()   # (N, 20)
+    all_logits = torch.cat(all_logits).numpy()   # (N, 20)；有手遞手頭時 (N, 40)
+    all_labels = torch.cat(all_labels).numpy()
+    if all_logits.shape[1] > N_PAIRS:
+        dp = 1 / (1 + np.exp(-all_logits[:, N_PAIRS:])); dl = all_labels[:, N_PAIRS:]
+        m = all_labels[:, :N_PAIRS] >= 0.5
+        yt, yp = dl[m] >= 0.5, dp[m] >= 0.5
+        tp = int((yt & yp).sum()); fp = int((~yt & yp).sum()); fn = int((yt & ~yp).sum())
+        print(f"  [Val] 手遞手（真的掩護 {int(m.sum())} 組裡）：真 {int(yt.sum())}、判 {tp + fp}、對 {tp}、"
+              f"F1 {2 * tp / max(1, 2 * tp + fp + fn):.3f}")
+        all_logits, all_labels = all_logits[:, :N_PAIRS], all_labels[:, :N_PAIRS]
     probs = torch.sigmoid(torch.tensor(all_logits)).numpy()
 
     # 軟標籤（接觸幀為中心的高斯）以 0.5 為界轉成 0/1 才能算 AUC/F1；舊的 0/1 標籤不受影響
@@ -324,6 +341,9 @@ def main():
                         help='學習曲線：訓練 clip 只用這個比例（val 不變）')
     parser.add_argument('--no_pretrain', action='store_true',
                         help='對照組：不載入 --pretrain_ckpt 的權重（仍讀它的 d_model 等設定）')
+    parser.add_argument('--dho_weight', type=float, default=1.0, help='手遞手頭的 loss 權重（資料有 pairwise_dho 時）')
+    parser.add_argument('--init_ckpt', default=None,
+                        help='整個模型（含分類頭 / 手遞手頭）從這個 finetune ckpt 接著訓練（NETS 順序：先 NBA 弱標籤、再自己的標記）')
     parser.add_argument('--mask_offpairs', action='store_true',
                         help='只算持球者那 4 組（pair (0, j)）的 loss，其他 16 組遮掉不當負例'
                              '（標記只有持球擋拆 → 片段裡沒標的無球掩護不再被教成「不是掩護」）')
@@ -419,7 +439,7 @@ def main():
     # pairwise：任一配對目標 >= 0.5 算正樣本（軟標籤的尾巴不算）；一般模式：直接取 label
     if args.pairwise:
         train_labels = np.array([
-            float(dataset[i][2].numpy().max() >= 0.5) for i in train_ds.indices
+            float(dataset[i][2].numpy()[:20].max() >= 0.5) for i in train_ds.indices
         ])
     else:
         train_labels = np.array([dataset[i][2].item() for i in train_ds.indices])
@@ -446,12 +466,17 @@ def main():
     n_layers = ckpt.get('n_layers', 2)
 
     ModelClass = ScreenNetPairwise if args.pairwise else ScreenNetClassifier
-    in_dim = int(dataset.trajs.shape[-1])          # 2 = x, y；8 = 再加姿態 / 遮罩通道（pose_features）
+    in_dim = int(dataset.trajs.shape[-1])          # 2 = x, y；3 = 再加持球通道（holder_ch）；8 = 姿態 / 遮罩通道
     kw = {'in_dim': in_dim} if in_dim != 2 else {}
+    use_dho = bool(getattr(dataset, 'has_dho', False))
+    if use_dho:
+        kw['dho'] = True
+        print(f"手遞手頭：開（loss 權重 {args.dho_weight}）")
     if in_dim != 2 and not args.pairwise:
         raise SystemExit('姿態輸入（in_dim > 2）只支援 --pairwise')
     if in_dim != 2:
-        print(f"輸入每人每張 {in_dim} 維（x, y + {in_dim - 2} 個姿態 / 遮罩通道）")
+        extra_ch = '持球通道' if getattr(dataset, 'meta', {}).get('holder_ch') else '姿態 / 遮罩通道'
+        print(f"輸入每人每張 {in_dim} 維（x, y + {in_dim - 2} 個{extra_ch}）")
     if args.no_pretrain:
         # 對照組：同樣架構、權重全部隨機初始化 → 看 NBA 預訓練到底有沒有幫助
         model = ModelClass(d_model, n_heads, n_layers, **kw).to(device)
@@ -460,6 +485,11 @@ def main():
         model = ModelClass.from_pretrained(
             args.pretrain_ckpt, d_model, n_heads, n_layers, **kw
         ).to(device)
+
+    if args.init_ckpt:
+        st = torch.load(args.init_ckpt, map_location='cpu')['model']
+        missing, unexpected = model.load_state_dict(st, strict=False)
+        print(f"整個模型從 {args.init_ckpt} 接著訓練（缺 {len(missing)}、多 {len(unexpected)} 個權重）")
 
     if args.freeze_base:
         for p in model.base.parameters():
@@ -493,6 +523,15 @@ def main():
         def criterion(logits, label):
             return (_bce(logits, label) * pair_mask).sum() / (pair_mask.sum() * len(logits))
         print('mask_offpairs：只算持球者那 4 組的 loss')
+    if args.pairwise and use_dho:
+        _screen_crit = criterion
+        _dho_bce = nn.BCEWithLogitsLoss(reduction='none')
+
+        def criterion(logits, label):
+            ls = _screen_crit(logits[:, :N_PAIRS], label[:, :N_PAIRS])
+            m = (label[:, :N_PAIRS] >= 0.5).float()                     # 只有真的掩護那組才問「是不是手遞手」
+            ld = (_dho_bce(logits[:, N_PAIRS:], label[:, N_PAIRS:]) * m).sum() / m.sum().clamp(min=1.0)
+            return ls + args.dho_weight * ld
 
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr
@@ -540,6 +579,7 @@ def main():
                 'n_heads':  n_heads,
                 'n_layers': n_layers,
                 'in_dim':   in_dim,
+                'dho':      use_dho,
                 # 事件定位資料（convert_contact.py）才有：推論要用同一個 anchor 對回影格，
                 # 事件級驗證只能用 val_clips（沒訓練過的 clip）
                 'val_clips': val_clips,

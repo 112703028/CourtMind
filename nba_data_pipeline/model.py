@@ -318,19 +318,24 @@ class ScreenNetClassifier(nn.Module):
 class ScreenNetPairwise(nn.Module):
     """Base + PairwiseScreenHead，偵測所有進攻球員配對的掩護關係。"""
 
-    def __init__(self, d_model=128, n_heads=4, n_layers=4, in_dim=2):
+    def __init__(self, d_model=128, n_heads=4, n_layers=4, in_dim=2, dho=False):
         super().__init__()
         self.base = MiniScreenNet(d_model, n_heads, n_layers, in_dim=in_dim)
         self.head = PairwiseScreenHead(d_model)
+        # 手遞手頭（2026-11-19，NETS 把手遞手當另一類）：同樣 20 組，回答「這組掩護是不是手遞手」→ 輸出 (B, 40)
+        self.dho_head = PairwiseScreenHead(d_model) if dho else None
 
     def forward(self, trajectories, roles):
-        return self.head(self.base(trajectories, roles))   # (B, 20)
+        z = self.base(trajectories, roles)
+        if self.dho_head is None:
+            return self.head(z)                              # (B, 20)
+        return torch.cat([self.head(z), self.dho_head(z)], dim=1)   # (B, 40)：前 20 掩護、後 20 手遞手
 
     @classmethod
-    def from_pretrained(cls, ckpt_path, d_model=128, n_heads=4, n_layers=4, in_dim=2):
+    def from_pretrained(cls, ckpt_path, d_model=128, n_heads=4, n_layers=4, in_dim=2, dho=False):
         """in_dim > 預訓練的輸入維度（2 = x, y）時：LSTM 讀輸入的權重前 2 欄照搬、多出來的欄位補 0
         → 訓練一開始行為跟只看位置一樣，再慢慢學會用新特徵（姿態 / 遮罩）。"""
-        obj = cls(d_model, n_heads, n_layers, in_dim=in_dim)
+        obj = cls(d_model, n_heads, n_layers, in_dim=in_dim, dho=dho)
         ckpt = torch.load(ckpt_path, map_location='cpu')
         pretrain_state = {
             k.replace('base.', ''): v
