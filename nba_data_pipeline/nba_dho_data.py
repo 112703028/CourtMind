@@ -107,8 +107,10 @@ def main():
     ap.add_argument('--sigma', type=float, default=1.0)
     ap.add_argument('--anchor', type=int, default=3)
     ap.add_argument('--min_target', type=float, default=0.05)
-    ap.add_argument('--max_windows', type=int, default=150000)
-    ap.add_argument('--other_ratio', type=float, default=1.0, help='只有一般擋拆的片段，窗數最多是手遞手片段窗數的幾倍（手遞手片段全收）')
+    ap.add_argument('--max_windows', type=int, default=300000, help='保險上限')
+    ap.add_argument('--dho_chunks', type=int, default=3000, help='有手遞手的片段取幾段')
+    ap.add_argument('--other_chunks', type=int, default=3000, help='只有一般擋拆的片段取幾段（對照：掩護但不是手遞手）')
+    ap.add_argument('--neg_keep', type=float, default=0.2, help='沒有任何目標的窗只留這個比例（每段約 80 窗、大多是負的）')
     ap.add_argument('--holder_flip', type=float, default=0.1, help='持球通道雜訊：每張以這個機率換成 None / 隔壁的人（轉播持球者約 89% 對）')
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--out', default=str(OUT))
@@ -127,17 +129,13 @@ def main():
     roles = np.array([0] + [1] * (N_OFF - 1) + [2] * N_DEF, dtype=np.int64)
     T, P, PD, C, CTR = [], [], [], [], []
     n_dho_ev = n_scr_ev = 0
-    # 手遞手片段全收（先排），只有擋拆的片段抽到窗數 ≈ other_ratio × 手遞手片段窗數
+    # 有手遞手的片段、只有一般擋拆的片段各取一批（第 1 次全收手遞手 + 窗數上限 → 1829 段手遞手、0 段一般擋拆，太不平衡）
     has_dho = [k for k in range(len(chunks)) if any(e['dho'] for e in chunks[k]['events'])]
     dho_set = set(has_dho)
     others = [k for k in range(len(chunks)) if k not in dho_set]
-    order = list(rng.permutation(has_dho)) + list(rng.permutation(others))
-    n_dho_win = None
+    order = list(rng.permutation(has_dho))[:args.dho_chunks] + list(rng.permutation(others))[:args.other_chunks]
+    print(f'片段：有手遞手 {len(has_dho)}（取 {min(len(has_dho), args.dho_chunks)}）、只有擋拆 {len(others)}（取 {min(len(others), args.other_chunks)}）', flush=True)
     for k in order:
-        if n_dho_win is None and k not in dho_set:
-            n_dho_win = len(T)                        # 手遞手片段做完了
-        if n_dho_win is not None and len(T) - n_dho_win >= args.other_ratio * n_dho_win:
-            break
         c = sportvu_noise.apply_noise(chunks[k], rng, sportvu_noise.BROADCAST)
         hd = list(c['holder'])
         for i in range(len(hd)):                    # 持球通道加雜訊（轉播的持球者不完美）
@@ -147,6 +145,8 @@ def main():
         n_dho_ev += sum(e['dho'] for e in c['events']); n_scr_ev += sum(not e['dho'] for e in c['events'])
         for traj, pw, pwd, center in build_windows(c, args.sigma, args.sigma * 1.5, args.min_target, args.anchor,
                                                    holder_ch=True, with_dho=True):
+            if pw.max() < args.min_target and rng.rand() > args.neg_keep:
+                continue
             T.append(traj); P.append(pw); PD.append(pwd); C.append(-(int(k) + 1)); CTR.append(center)
         if len(T) >= args.max_windows:
             break
