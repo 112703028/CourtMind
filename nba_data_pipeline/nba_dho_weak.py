@@ -14,6 +14,7 @@ nba_dho_weak.py — 用 NBA 公開追蹤資料（nba-movement-data，SportVU 25f
 用法：python nba_data_pipeline/nba_dho_weak.py extract [--games 50] [--workers 8]
      python nba_data_pipeline/nba_dho_weak.py stats
      python nba_data_pipeline/nba_dho_weak.py render [--n 30]
+     python nba_data_pipeline/nba_dho_weak.py render2 --n 20   # 第 2 輪驗證：排除第 1 輪看過的 → output_videos/nba_dho_check2/
 """
 import os
 import sys
@@ -34,6 +35,7 @@ from extract_sequences import parse_moment, find_ball_handler, dist, FPS
 DATA = ROOT / 'nba-movement-data' / 'data'
 OUT = ROOT / 'stubs' / 'nba_dho'
 CHECK = ROOT / 'output_videos' / 'nba_dho_check'
+CHECK2 = ROOT / 'output_videos' / 'nba_dho_check2'
 HANDOFF_DIST = 6.5        # NETS：換手時兩人 < 6.5 呎（NBA 平均臂展約 6'6"）
 
 
@@ -51,7 +53,7 @@ def load_game(name):
         return json.load(open(os.path.join(tmp, f)))
 
 
-def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0):
+def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0, min_hoop=15.0, max_screen=8.0):
     moms = [m for m in ev.get('moments', []) if len(m[5]) == 11]       # 球 + 10 人都在
     if len(moms) < 20:
         return []
@@ -89,9 +91,25 @@ def handoffs_in_event(ev, max_air=0.5, min_hold=0.4, pingpong=1.0):
             continue
         k = (b1 + a2) // 2
         m = moms[k]
+        # 使用者看 30 個（2026-11-19）：只有 NETS 規則 17/30 真；假的多在禁區（低位餵球 / 籃板 / 背框交還）或給球者沒擋到人
+        # → 交接位置離最近籃框 ≥ min_hoop 呎、給球者 ±1 秒內貼到「不是守他的」防守者 ≤ max_screen 呎（手遞手 = 交球 + 掩護）
+        if A[0] not in pms[k]['players']:
+            continue                                  # 交接那格給球者不在（換人）
+        pA = pms[k]['players'][A[0]]['pos']
+        hoop = min(dist(pA, (5.25, 25.0)), dist(pA, (88.75, 25.0)))
+        defs = [q for q, v in pms[k]['players'].items() if v['team'] != A[1]]
+        i0 = max(0, k - FPS)
+        own = min(defs, key=lambda q: dist(pms[i0]['players'][A[0]]['pos'], pms[i0]['players'][q]['pos'])
+                  if A[0] in pms[i0]['players'] and q in pms[i0]['players'] else 99)
+        scr = min((dist(pms[i]['players'][A[0]]['pos'], pms[i]['players'][q]['pos'])
+                   for i in range(max(0, k - FPS), min(len(pms), k + FPS + 1)) for q in defs
+                   if q != own and A[0] in pms[i]['players'] and q in pms[i]['players']), default=99)
+        if hoop < min_hoop or scr > max_screen:
+            continue
         out.append(dict(period=m[0], game_clock=round(m[2], 2), shot_clock=m[3], event_id=ev['eventId'], idx=k,
                         giver=A[0], receiver=B[0], team=A[1], gap_s=round(max(gap, 0), 2), dist_ft=round(min(ds), 1),
-                        hold_a_s=round((b1 - a1 + 1) / FPS, 2), hold_b_s=round((b2 - a2 + 1) / FPS, 2)))
+                        hold_a_s=round((b1 - a1 + 1) / FPS, 2), hold_b_s=round((b2 - a2 + 1) / FPS, 2),
+                        hoop_ft=round(hoop, 1), screen_ft=round(scr, 1)))
     return out
 
 
@@ -141,11 +159,17 @@ def stats():
     print(f'  球沒人拿（秒）10/50/90%：{q(gaps)}；兩人最近（呎）：{q(ds)}；給球者持球（秒）：{q(ha)}；接球者持球（秒）：{q(hb)}')
 
 
-def render(n=30, seed=0, win_s=2.0):
+def render(n=30, seed=0, win_s=2.0, out=None, exclude=None):
     """抽 n 個畫成戰術板動畫（換手前後 win_s 秒）：進攻紅、防守藍、球黑；給球者 A、接球者 B 標大字。"""
     import cv2
-    CHECK.mkdir(parents=True, exist_ok=True)
-    pool = [(f.stem, h) for f in sorted(OUT.glob('*.json')) for h in json.load(open(f))['handoffs']]
+    import csv as _csv
+    out = Path(out or CHECK)
+    out.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    if exclude and Path(exclude).exists():           # 已經看過的不再抽（第 2 輪驗證要新的）
+        seen = {(r['比賽'], int(r['節']), round(float(r['比賽時間(秒)']))) for r in _csv.DictReader(open(exclude, encoding='utf-8-sig'))}
+    pool = [(f.stem, h) for f in sorted(OUT.glob('*.json')) for h in json.load(open(f))['handoffs']
+            if (f.stem, h['period'], round(h['game_clock'])) not in seen]
     pick = random.Random(seed).sample(pool, min(n, len(pool)))
     W, H, S = 940, 500, 10                         # 1 呎 = 10 像素
     rows = []
@@ -156,7 +180,7 @@ def render(n=30, seed=0, win_s=2.0):
         ev = next(e for e in cache[name]['events'] if e['eventId'] == h['event_id'])
         moms = [m for m in ev['moments'] if len(m[5]) == 11]
         a, b = max(0, h['idx'] - int(win_s * FPS)), min(len(moms), h['idx'] + int(win_s * FPS))
-        vw = cv2.VideoWriter(str(CHECK / f'H{k:02d}.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H + 40))
+        vw = cv2.VideoWriter(str(out / f'H{k:02d}.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H + 40))
         for i in range(a, b):
             im = np.full((H + 40, W, 3), 235, np.uint8)
             cv2.rectangle(im, (0, 0), (W - 1, H - 1), (60, 60, 60), 2)
@@ -183,18 +207,19 @@ def render(n=30, seed=0, win_s=2.0):
         rows.append([f'H{k:02d}', name, h['period'], h['game_clock'], h['gap_s'], h['dist_ft'], '', ''])
         print(f'{k}/{len(pick)}', flush=True)
     import csv
-    with open(CHECK / 'nba_dho_check.csv', 'w', newline='', encoding='utf-8-sig') as fo:
+    with open(out / 'nba_dho_check.csv', 'w', newline='', encoding='utf-8-sig') as fo:
         w = csv.writer(fo)
         w.writerow(['編號', '比賽', '節', '比賽時間(秒)', '球沒人拿(秒)', '兩人最近(呎)', '手遞手嗎(t/f/?)', '備註'])
         w.writerows(rows)
-    print(f'{len(rows)} 個 → {CHECK}')
+    print(f'{len(rows)} 個 → {out}')
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['extract', 'stats', 'render'])
+    ap.add_argument('cmd', choices=['extract', 'stats', 'render', 'render2'])
     ap.add_argument('--games', type=int, default=50)
     ap.add_argument('--workers', type=int, default=8)
     ap.add_argument('--n', type=int, default=30)
     a = ap.parse_args()
-    {'extract': lambda: extract(a.games, a.workers), 'stats': stats, 'render': lambda: render(a.n)}[a.cmd]()
+    {'extract': lambda: extract(a.games, a.workers), 'stats': stats, 'render': lambda: render(a.n),
+     'render2': lambda: render(a.n, seed=1, out=CHECK2, exclude=CHECK / 'nba_dho_check.csv')}[a.cmd]()
