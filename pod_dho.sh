@@ -2,6 +2,7 @@
 # 2026-11-19 手遞手 + 持球通道實驗（交叉驗證 3 種子 × 5 份，同一批片段 = 目前訓練快取 458 支）
 #   base   ：court2base（x, y；不加手遞手）                                  ← 對照
 #   hold   ：court2holder（x, y, 持球通道 + 手遞手頭；我們自己的 9 個手遞手）    ← 持球通道對擋拆有沒有幫助
+#   holdnodho：hold 但手遞手 loss 權重 0                                         ← 把持球通道和手遞手頭的影響分開
 #   holdnba：hold + NBA 手遞手弱標籤（output_contact_nbadho，只進訓練）          ← NETS 的弱標籤
 #   seqnba ：先只用 NBA 訓練（nbastage1），再用自己的標記接著訓練（--init_ckpt）  ← NETS 最好的順序
 # 評估：擋拆 F1 用 five_seed_eval.py（本機也能跑，要 output_videos/batch 的 events.pkl 算持球通道）；手遞手看各 log 的 [Val] 手遞手
@@ -29,12 +30,13 @@ fi
 for s in 1 2 3; do
   run base $s --data_dir nba_data_pipeline/output_contact_court2base_503 &
   run hold $s --data_dir nba_data_pipeline/output_contact_court2holder_503 &
+  run holdnodho $s --data_dir nba_data_pipeline/output_contact_court2holder_503 --dho_weight 0 &
   wait
   run holdnba $s --data_dir nba_data_pipeline/output_contact_court2holder_503 --extra_data_dir nba_data_pipeline/output_contact_nbadho &
   run seqnba $s --data_dir nba_data_pipeline/output_contact_court2holder_503 --init_ckpt $CK/finetune_nbastage1_best.pt &
   wait
 done
-echo "訓練完 $(ls $CK | grep -c 'contact_\(base\|hold\|holdnba\|seqnba\)_s[1-3]_cv') / 60"
+echo "訓練完 $(ls $CK | grep -c 'contact_\(base\|hold\|holdnodho\|holdnba\|seqnba\)_s[1-3]_cv') / 75"
 for t in hold holdnba seqnba; do
   echo "== $t 最後一個 epoch 的手遞手（各份加總）"
   for f in logs/dho_${t}_s*_cv*.log; do grep -a "手遞手（真的掩護" "$f" | tail -1; done
