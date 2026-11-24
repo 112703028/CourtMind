@@ -162,7 +162,7 @@ def add(pkl, sam3_pkl, touch_pkl, pose_pkl):
     _, _, tch = pickle.load(open(touch_pkl, 'rb'))
     pose = pickle.load(open(pose_pkl, 'rb'))
     d['dho_hands'] = hands_feature(d, s, tch, pose)
-    d['dho_screens'] = from_screens(d, s, tch, pose)       # 方法 1：從擋拆出發（不經持球者 Viterbi）
+    d['dho_screens'] = with_probe(d, from_screens(d, s, tch, pose))   # 方法 1：從擋拆出發（不經持球者 Viterbi）+ probe 分數
     pickle.dump(d, open(pkl, 'wb'))
     print(f'手遞手：候選 {len(d["dho_hands"])} 個、判定 {len(detect(d))} 個、從擋拆 {len(d["dho_screens"])} 個')
 
@@ -177,7 +177,7 @@ def add_batch():
             d = pickle.load(open(pk, 'rb'))
             s_, t_, p_ = pickle.load(open(need[0], 'rb'))['shot_sam3'], pickle.load(open(need[1], 'rb'))[2], pickle.load(open(need[2], 'rb'))
             d['dho_hands'] = hands_feature(d, s_, t_, p_)
-            d['dho_screens'] = from_screens(d, s_, t_, p_)
+            d['dho_screens'] = with_probe(d, from_screens(d, s_, t_, p_))
             pickle.dump(d, open(pk, 'wb')); n += 1
     print(f'{n} 支寫入 dho_hands')
 
@@ -194,6 +194,8 @@ def with_dho(d):
     fps = d['fps']
     # 方法 1（從擋拆出發）的結果：對到的擋拆事件直接標手遞手（新來源 27 個：規則 13 + 方法 1 → 17，誤報 0）
     for p in d.get('dho_screens') or []:
+        if p.get('probe') is not None and p['probe'] < PROBE_MIN:
+            continue                                  # probe 複查沒過
         for e in events:
             if e['screener_id'] == p['giver'] and e['handler_id'] == p['receiver'] and e['peak_frame'] == p['event_frame']:
                 e['dho'], e['dho_frame'] = True, p['frame']
@@ -216,6 +218,26 @@ def is_dho_screen(events, S, H, frame, fps):
     （真的手遞手撞上比交接晚 0~1.4 秒；155 第 51 張是交接後 1.5 秒的另一次擋）。"""
     return any(e.get('dho') and e['screener_id'] == S and e['handler_id'] == H
                and -0.3 * fps <= frame - e['dho_frame'] < 1.5 * fps for e in events)
+
+
+PROBE_MIN = 0.1
+
+
+def with_probe(d, found):
+    """每個「從擋拆出發」的手遞手補上 A probe 分數（dho_model：正式 ScreenNet 主幹凍結 + NBA 弱標籤小網路）。
+    with_dho 只採用 probe ≥ PROBE_MIN 的：舊片段方法 1 錯的 5 個有 4 個 probe ≤ 0.06（162 / 164 / 347 / 78），
+    真的掉 4 個（其中 3 個規則本來就抓到）→ 舊 476 支擋拆事件標手遞手 17 → 13、錯 5 → 1；新來源 17 → 16/27、錯 0。"""
+    if not found:
+        return found
+    try:
+        import dho_model
+        sc = dho_model.probe_scores(d)
+    except Exception as e:                          # 沒有 torch / 權重 → 不複查
+        print(f'  [probe 略過] {e}')
+        return found
+    for p in found:
+        p['probe'] = sc.get((p['giver'], p['receiver'], p['event_frame']))
+    return found
 
 
 def from_screens(d, s, tch, pose=None, before_s=1.5, after_s=1.5, overlap_s=0.3, min_hold_s=0.3, max_gap_s=0.7):
