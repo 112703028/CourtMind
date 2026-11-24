@@ -46,3 +46,27 @@ def test_missing_pose_is_nan_not_zero():
     f = skeleton_features([None] * 5, [None] * 5, [None] * 5, 100)
     assert f['has_pose'] == 0
     assert all(math.isnan(f[k]) for k in ('hand_to_hand', 'arm_angle', 'turn', 'both_hands'))
+
+
+from dho_skeleton import merge_candidates
+
+
+def test_merge_same_pair_close_in_time():
+    c = merge_candidates([(3, 6, 72)], [(3, 6, 62)], 30)
+    assert len(c) == 1 and c[0]['from_event'] and c[0]['from_handoff']
+
+
+def test_keep_different_pairs():
+    assert len(merge_candidates([(3, 6, 72)], [(4, 6, 70)], 30)) == 2
+
+
+def test_keep_same_pair_far_apart():
+    assert len(merge_candidates([(3, 6, 72)], [(3, 6, 150)], 30)) == 2
+
+
+from dho_skeleton import assign_labels
+
+
+def test_one_label_matches_only_nearest_candidate():
+    cands = [dict(giver=3, receiver=6, frame=62), dict(giver=3, receiver=6, frame=100)]
+    assert assign_labels(cands, [(60, 3, 6, True)], 30) == [True, None]

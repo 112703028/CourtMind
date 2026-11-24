@@ -79,3 +79,121 @@ def skeleton_features(kp_a, kp_b, ball, H):
         t = _angle(shoulders[0], shoulders[-1])
         f['turn'] = t if t is not None else nan
     return f
+
+
+# ── 候選 + 特徵列 + 標記 ─────────────────────────────────────────────────────
+
+import sys
+import pickle
+import collections
+from pathlib import Path
+
+HERE = Path(__file__).parent
+ROOT = HERE.parent
+sys.path[:0] = [str(HERE), str(ROOT)]
+EXIST = ['approach_ft', 'v_giver', 'hold_b_s', 'probe', 'from_screens', 'from_event']
+SKEL = ['both_hands', 'hand_to_hand', 'arm_angle', 'arm_ext', 'ball_travel', 'turn', 'has_pose']
+
+
+def merge_candidates(events, handoffs, fps, gap_s=0.5):
+    """擋拆事件 / 持球者換手候選（都是 (給球者, 接球者, 影格)）→ 同一對、時間差 ≤ gap_s 秒的併成一個。
+    回 [{giver, receiver, frame, from_event, from_handoff, event_frame}]（frame：有換手用換手張，否則用撞上張）。"""
+    out = []
+    for A, B, f in events:
+        out.append(dict(giver=A, receiver=B, frame=f, from_event=True, from_handoff=False, event_frame=f))
+    for A, B, f in handoffs:
+        m = [c for c in out if c['giver'] == A and c['receiver'] == B and abs(c['frame'] - f) <= gap_s * fps]
+        if m:
+            m[0]['from_handoff'] = True
+            m[0]['frame'] = f
+        else:
+            out.append(dict(giver=A, receiver=B, frame=f, from_event=False, from_handoff=True, event_frame=None))
+    return out
+
+
+def assign_labels(cands, labels, fps):
+    """每個標記只給時間最近的那個候選（同一對、候選時間 − 交接張在 −0.6 ~ +2.1 秒）；同一個標記範圍內的其他候選 = None（重複，不評估）；
+    沒落在任何標記範圍 = False（同一支片段其他候選當「不是」）。回跟 cands 同長度的 list。"""
+    out = [False] * len(cands)
+    for hf, A, B, t in labels:
+        m = [i for i, c in enumerate(cands) if c['giver'] == A and c['receiver'] == B
+             and -0.6 * fps <= c['frame'] - hf <= 2.1 * fps]
+        if not m:
+            continue
+        best = min(m, key=lambda i: abs(cands[i]['frame'] - hf))
+        for i in m:
+            if i == best:
+                out[i] = t
+            elif out[i] is False:
+                out[i] = None
+    return out
+
+
+def clip_rows(pk, need, labels):
+    """一支片段 → 每個候選一列：骨架特徵 + 現有特徵 + 現在上線的做法有沒有標（prod）+ 標記。"""
+    import dho
+    import dho_model
+    from shot_detect import map_ids
+    d = pickle.load(open(pk, 'rb'))
+    s = pickle.load(open(need[0], 'rb'))['shot_sam3']
+    tch = pickle.load(open(need[1], 'rb'))[2]
+    pose = pickle.load(open(need[2], 'rb'))
+    fps = d['fps']
+    cands_h = {(p['giver'], p['receiver'], p['frame']): p for p in dho.candidates(d)}
+    cands = merge_candidates([(e['screener_id'], e['handler_id'], e['peak_frame']) for e in d.get('events') or []],
+                             list(cands_h), fps)
+    probe = dho_model.probe_scores(d)
+    scr = {(p['giver'], p['receiver'], p['event_frame']) for p in d.get('dho_screens') or []
+           if p.get('probe') is None or p['probe'] >= dho.PROBE_MIN}
+    prod = [(e['dho_frame'], e['screener_id'], e['handler_id']) for e in dho.with_dho(d) if e.get('dho')]
+    inv = {}
+    for q, v in map_ids(s, d['player_tracks']).items():
+        inv.setdefault(v, q)
+    boxes = [b[3] - b[1] for fd in s['players'] for b in fd.values()]
+    H = float(np.median(boxes)) if boxes else 100.0
+    fi = s['frame_idx']
+    labs = assign_labels(cands, labels, fps)
+    rows = []
+    for c, lab in zip(cands, labs):
+        idx = [i for i in range(min(len(fi), len(pose), len(tch))) if abs(fi[i] - c['frame']) <= fps]
+        sa, sb = inv.get(c['giver']), inv.get(c['receiver'])
+        f = skeleton_features([pose[i].get(sa) if sa is not None else None for i in idx],
+                              [pose[i].get(sb) if sb is not None else None for i in idx],
+                              [tch[i][1] for i in idx], H)
+        h = next((p for k, p in cands_h.items() if k[0] == c['giver'] and k[1] == c['receiver'] and k[2] == c['frame']), {})
+        ek = (c['giver'], c['receiver'], c['event_frame'])
+        f.update(approach_ft=h.get('approach_ft', float('nan')), v_giver=h.get('v_giver', float('nan')),
+                 hold_b_s=h.get('hold_b_s', float('nan')), probe=probe.get(ek, float('nan')) if c['from_event'] else float('nan'),
+                 from_screens=float(ek in scr), from_event=float(c['from_event']))
+        f = {k: (float('nan') if v is None else v) for k, v in f.items()}
+        f['prod'] = any(p[1] == c['giver'] and p[2] == c['receiver'] and abs(p[0] - c['frame']) <= 0.5 * fps
+                        or (c['event_frame'] is not None and p[1] == c['giver'] and p[2] == c['receiver']
+                            and -0.3 * fps <= c['event_frame'] - p[0] < 1.5 * fps) for p in prod)
+        f['label'] = lab
+        f['clip'] = Path(pk).stem.replace('_events', '')
+        rows.append(f)
+    return rows
+
+
+def all_rows(split):
+    """'old' = 舊 476 支（stubs/ball_batch + stubs/pose_hands）、'new' = 新來源 29 段（stubs/pipeline）。"""
+    import glob
+    import io
+    import contextlib
+    import dho_model
+    if split == 'old':
+        lab = dho_model.labels_old()
+        items = [(pk, [ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{c}_touch.pkl',
+                       ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl'], lab.get(c, []))
+                 for pk in sorted(glob.glob(str(ROOT / 'output_videos' / 'batch' / 'screen_*_events.pkl')))
+                 for c in [Path(pk).stem.replace('_events', '')]]
+    else:
+        lab = dho_model.labels_new()
+        items = [(ROOT / 'output_videos' / 'pipeline' / f'{c}_events.pkl', [ROOT / 'stubs' / 'pipeline' / f'{c}_{k}.pkl'
+                  for k in ('sam3', 'touch', 'pose')], lab.get(c, [])) for c in sorted(lab)]
+    rows = []
+    for pk, need, lb in items:
+        if all(Path(x).exists() for x in need) and Path(pk).exists():
+            with contextlib.redirect_stdout(io.StringIO()):
+                rows += clip_rows(pk, need, lb)
+    return rows
