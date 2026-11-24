@@ -64,9 +64,41 @@ def holders_full(s, tch, player_tracks, n, with_flight=False):
     return (out, flight) if with_flight else out
 
 
-def viterbi(sam, old, flight, fps, w_sam=2.0, w_det=1.0, stay=0.0, to_free=8.0, direct=32.0, team=None, def_pen=3.0):
+def wrist_holders_full(s, tch, pose, player_tracks, n, r_hand=0.2):
+    """手腕版持球者（pose_pass.holders：球離誰的手腕 ≤ r_hand 倍身高）→ 原片每張（推論編號、-1 = 沒有）。
+    手遞手時兩人貼在一起，球的遮罩同時碰到兩人會亂跳（dho_010 碰球 BAxxBBB、手腕 AAAABAB）→ 手腕比較準。"""
+    import pose_pass as PP
+    H = float(np.median([b[3] - b[1] for fd in s['players'] for b in fd.values()])) if any(s['players']) else 100.0
+    h10 = PP.smooth_flicker(PP.holders(pose, tch, H, r_hand))
+    idmap = map_ids(s, player_tracks)
+    out = [-1] * n
+    fi = list(s['frame_idx']) + [n]
+    for i, p in enumerate(h10):
+        q = idmap.get(p) if p is not None else None
+        for f in range(fi[i], min(fi[i + 1], n)):
+            out[f] = q if q is not None else -1
+    return out
+
+
+def sustained(seq, fps, min_s):
+    """連續持球 ≥ min_s 秒的人（同一人中間夾 -1 不算斷）。"""
+    out, cur, start, last = set(), None, 0, 0
+    for f, p in enumerate(list(seq) + [None]):
+        if p == -1:
+            continue
+        if p != cur:
+            if cur is not None and (last - start + 1) >= min_s * fps:
+                out.add(cur)
+            cur, start = p, f
+        last = f
+    return out
+
+
+def viterbi(sam, old, flight, fps, w_sam=2.0, w_det=1.0, stay=0.0, to_free=8.0, direct=32.0, team=None, def_pen=3.0,
+            pose_h=None, w_pose=1.5, exempt=()):
     """持球者當成序列問題（Viterbi 最可能路徑）：狀態 = 每個候選球員持球 / FREE（球在空中、沒人拿）。
-    觀測：SAM3 球碰到誰（權重 w_sam）、handler_detector 判誰（w_det）、球在空中 → 偏 FREE。
+    觀測：SAM3 球碰到誰（權重 w_sam）、handler_detector 判誰（w_det）、球在空中 → 偏 FREE；
+          pose_h（手腕版持球者，w_pose）；exempt = 不套用防守懲罰的人（連續持球夠久，見 possession_path）。
     轉移：維持不變 0；持球 ↔ FREE 罰 to_free；A 直接跳到 B（中間沒有傳球）罰 direct（物理上球不會瞬移）。
     罰分以 30fps 為準。2026-11-05 在 84 支延長片段掃過：to_free=8、direct=32 → 撞上那刻錯 2/87、一直跳 30/84、沒持球者 31%
     （現在 handler_detector 6/87、32/84、65%）。回原片每張的持球者（-1 = FREE / 沒人）。"""
@@ -86,7 +118,9 @@ def viterbi(sam, old, flight, fps, w_sam=2.0, w_det=1.0, stay=0.0, to_free=8.0, 
                 v += w_sam / 2 if p == -1 else -w_sam / 2
             if old[f] not in (None, -1):
                 v += w_det if p == old[f] else (-w_det / 2)
-            if team is not None and p != -1 and team.get(p) == 2:
+            if pose_h is not None and pose_h[f] not in (None, -1):
+                v += w_pose if p == pose_h[f] else (-w_pose if p != -1 else -w_pose / 2)
+            if team is not None and p != -1 and team.get(p) == 2 and p not in exempt:
                 v -= def_pen                # 防守者拿球（抄截）要證據夠強才成立：貼身防守時球遮罩常擦到防守者
             emit[f, j] = v
     scale = 30.0 / fps                      # 罰分以 30fps 為準
@@ -113,7 +147,7 @@ def clip_teams(pa):
     return {p: c.most_common(1)[0][0] for p, c in cnt.items()}
 
 
-def possession_path(d, s, tch, def_pen=3.0, min_touch=0.2):
+def possession_path(d, s, tch, def_pen=3.0, min_touch=0.2, pose=None, w_pose=1.5, sustain_s=None):
     """events.pkl + shot_sam3 + touches → Viterbi 持球者路徑（原片每張，-1 = 沒人拿）。
     min_touch：追到球的影格裡有人碰球的比例 < 這個值 = 選錯球（比分條上的球圖示等；screen_147 追到 110/110 張、只有 6 張有人碰）
     → SAM3 的球不可信，整支退回 handler_detector（d['ball_acquisition']）。476 支中位數 0.75、低於 0.2 的 17 支。"""
@@ -122,7 +156,14 @@ def possession_path(d, s, tch, def_pen=3.0, min_touch=0.2):
         return list(d['ball_acquisition'])
     n, fps = len(d['ball_acquisition']), d.get('fps', 30.0)
     sam, flight = holders_full(s, tch, d['player_tracks'], n, with_flight=True)
-    return viterbi(sam, list(d['ball_acquisition']), flight, fps, team=clip_teams(d['player_assignment']), def_pen=def_pen)
+    pose_h = wrist_holders_full(s, tch, pose, d['player_tracks'], n) if pose is not None else None
+    # 防守懲罰（每張 −def_pen）比 SAM3 碰球的加分（+w_sam）大 → 被分到防守的人永遠不會被判持球；分隊一錯，真的持球者整段消失
+    # （新片段 dho_007 / 026 / 027 給球者被分到防守）→ 碰球或手腕連續 ≥ sustain_s 秒的人不罰（短暫擦到照罰，假抄截一樣擋）
+    exempt = set()
+    if sustain_s:
+        exempt = sustained(sam, fps, sustain_s) | (sustained(pose_h, fps, sustain_s) if pose_h is not None else set())
+    return viterbi(sam, list(d['ball_acquisition']), flight, fps, team=clip_teams(d['player_assignment']), def_pen=def_pen,
+                   pose_h=pose_h, w_pose=w_pose, exempt=exempt)
 
 
 def detect_passes(path, fps, team, shots=(), max_air=1.5, shot_win=0.5, min_air=0.1, min_hold=0.2):

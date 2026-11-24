@@ -211,6 +211,67 @@ def is_dho_screen(events, S, H, frame, fps):
                and -0.3 * fps <= frame - e['dho_frame'] < 1.5 * fps for e in events)
 
 
+def from_screens(d, s, tch, pose=None, before_s=1.5, after_s=1.5, overlap_s=0.3, min_hold_s=0.3, max_gap_s=0.7):
+    """方法 1（2026-11-24）：從 ScreenNet 的擋拆出發，不經過持球者 Viterbi / 分隊（新片段 27 個手遞手漏 14 個，8 個是持球者認錯）。
+    每次擋拆（掩護者 S、持球者 H、撞上 f）：直接看原始「SAM3 碰球」和「手腕離球最近」（任一個說是他就算）——
+      撞上前 before_s 秒 ~ 後 overlap_s 秒 S 拿球 ≥ min_hold_s、撞上前 overlap_s 秒 ~ 後 after_s 秒 H 拿球 ≥ min_hold_s、
+      S 最後一次拿在 H 第一次拿之前、中間沒人拿 ≤ max_gap_s → 手遞手。回 [{frame, giver, receiver, event_frame}]。"""
+    from possession_sam3 import holders_full, wrist_holders_full
+    n, fps = len(d['court_coords']), d['fps']
+    sam = holders_full(s, tch, d['player_tracks'], n)
+    wr = wrist_holders_full(s, tch, pose, d['player_tracks'], n) if pose is not None else [-1] * n
+    has = lambda q, f: 0 <= f < n and (sam[f] == q or wr[f] == q)
+    out = []
+    for e in d.get('events') or []:
+        S, H, f = e['screener_id'], e['handler_id'], e['peak_frame']
+        fs = [g for g in range(f - int(before_s * fps), f + int(overlap_s * fps) + 1) if has(S, g)]
+        fh = [g for g in range(f - int(overlap_s * fps), f + int(after_s * fps) + 1) if has(H, g)]
+        if len(fs) < min_hold_s * fps or len(fh) < min_hold_s * fps:
+            continue
+        last_s = max(fs)
+        first_h = min([g for g in fh if g > min(fs)] or [10 ** 9])
+        if first_h == 10 ** 9 or last_s > first_h + int(0.2 * fps) or first_h - last_s > max_gap_s * fps:
+            continue
+        out.append(dict(frame=(last_s + first_h) // 2, giver=S, receiver=H, event_frame=f))
+    return out
+
+
+def screens_eval():
+    """方法 1 在兩批上量：舊 476 支（已知真的手遞手 15 個，dho_check.csv）、新來源 27 段（new_label/dho/label.csv，測試集）。"""
+    import re
+    lab = {(r['clip'], int(r['交接影格']), int(r['給球者'].lstrip('#')), int(r['接球者'].lstrip('#')))
+           for r in csv.DictReader(open(OUT / 'dho_check.csv', encoding='utf-8-sig')) if r['手遞手嗎(t/f/?)'].strip() == 't'}
+    sets = {'舊 476 支': [], '新來源 27 段': []}
+    for pk in _clips():
+        c = Path(pk).stem.replace('_events', '')
+        need = [ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{c}_touch.pkl', ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl']
+        if all(x.exists() for x in need):
+            sets['舊 476 支'].append((c, pk, need, [(f, A, B) for cc, f, A, B in lab if cc == c]))
+    pat = re.compile(r'(\d+)\s*:\s*#(\d+)\s*>\s*#(\d+)')
+    for r in list(csv.reader(open(ROOT / 'output_videos' / 'new_label' / 'dho' / 'label.csv', encoding='utf-8-sig')))[1:]:
+        c = r[0]
+        need = [ROOT / 'stubs' / 'pipeline' / f'{c}_{k}.pkl' for k in ('sam3', 'touch', 'pose')]
+        if all(x.exists() for x in need):
+            sets['新來源 27 段'].append((c, ROOT / 'output_videos' / 'pipeline' / f'{c}_events.pkl', need,
+                                     [(int(a), int(b), int(cc)) for a, b, cc in pat.findall(r[4])]))
+    for name, items in sets.items():
+        npred = hit = ntrue = 0
+        extra = []
+        for c, pk, need, gt in items:
+            d = pickle.load(open(pk, 'rb'))
+            sm = pickle.load(open(need[0], 'rb'))['shot_sam3']
+            tch = pickle.load(open(need[1], 'rb'))[2]
+            pose = pickle.load(open(need[2], 'rb'))
+            pr = from_screens(d, sm, tch, pose)
+            npred += len(pr); ntrue += len(gt)
+            for f, A, B in gt:
+                hit += any(p['giver'] == A and p['receiver'] == B and abs(p['frame'] - f) <= 1.0 * d['fps'] for p in pr)
+            extra += [f"{c}@{p['frame']}:#{p['giver']}>#{p['receiver']}" for p in pr
+                      if not any(p['giver'] == A and p['receiver'] == B and abs(p['frame'] - f) <= 1.0 * d['fps'] for f, A, B in gt)]
+        print(f'{name}（{len(items)} 支）：判手遞手 {npred}、對到已知的 {hit}/{ntrue}；不在已知清單裡的 {len(extra)} 個')
+        print('   ', ' '.join(extra[:40]))
+
+
 def score():
     lab = {(r['clip'], int(r['交接影格'])): r['手遞手嗎(t/f/?)'].strip() for r in csv.DictReader(open(OUT / 'dho_check.csv', encoding='utf-8-sig'))}
     sel = tp = 0
@@ -347,5 +408,7 @@ if __name__ == '__main__':
         add_batch()
     elif sys.argv[1:2] == ['cv']:
         classifier_cv()
+    elif sys.argv[1:2] == ['screens']:
+        screens_eval()
     else:
         main()

@@ -23,8 +23,9 @@ def clips():
     return sorted(glob.glob(str(ROOT / 'output_videos' / 'batch' / 'screen_*_events.pkl')), key=lambda x: int(Path(x).stem.split('_')[1]))
 
 
-def viterbi_path(d, name):
-    """events.pkl dict → Viterbi 持球者（原片每張，-1 = 沒人 / 球在空中）；沒有追球資料回 None。"""
+def viterbi_path(d, name, use_pose=False, **prm):
+    """events.pkl dict → Viterbi 持球者（原片每張，-1 = 沒人 / 球在空中）；沒有追球資料回 None。
+    use_pose：讀 stubs/pose_hands/<片段>.pkl 加手腕證據；prm 傳給 possession_path（sustain_s、w_pose）。"""
     from possession_sam3 import possession_path
     bp, tp = ROOT / 'stubs' / 'ball_batch' / f'{name}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{name}_touch.pkl'
     if not (bp.exists() and tp.exists()):
@@ -33,7 +34,11 @@ def viterbi_path(d, name):
     _, _, tch = pickle.load(open(tp, 'rb'))
     dd = dict(d)
     dd['ball_acquisition'] = list(d.get('ball_acquisition_det') or d['ball_acquisition'])
-    return possession_path(dd, s, tch)
+    pose = None
+    if use_pose:
+        pp = ROOT / 'stubs' / 'pose_hands' / f'{name}.pkl'
+        pose = pickle.load(open(pp, 'rb')) if pp.exists() else None
+    return possession_path(dd, s, tch, pose=pose, **prm)
 
 
 def _iou(a, b):
@@ -118,6 +123,39 @@ def eval_():
             print(f'±{tol} 秒、{tn}：舊 F1 {a[3]:.3f}（抓對 {a[0]} 誤報 {a[1]} 漏抓 {a[2]}） → 新 {b[3]:.3f}（{b[0]} / {b[1]} / {b[2]}）')
 
 
+def eval_variants():
+    """持球者修正（2026-11-24）：正式 vs 連續持球不罰 vs 加手腕 vs 兩個都加，同一個擋拆模型。"""
+    import io, contextlib
+    from rescreen_batch import load_model
+    model = load_model()
+    V = {'正式': dict(), '連續持球不罰': dict(sustain_s=0.5), '加手腕': dict(use_pose=True),
+         '兩個都加': dict(use_pose=True, sustain_s=0.5)}
+    labs, fps, preds, stat = {}, {}, {k: {} for k in V}, collections.Counter()
+    for pk in clips():
+        c = Path(pk).stem.replace('_events', '')
+        d = pickle.load(open(pk, 'rb'))
+        g = label_events(c, d)
+        if g is None:
+            continue
+        paths = {k: viterbi_path(d, c, **v) for k, v in V.items()}
+        if any(p is None for p in paths.values()):
+            continue
+        labs[c], fps[c] = g, d['fps']
+        for k, path in paths.items():
+            with contextlib.redirect_stdout(io.StringIO()):
+                preds[k][c] = detect(d, path, model)
+            stat[k, '沒持球者'] += sum(1 for x in path if x in (None, -1)); stat[k, '影格'] += len(path)
+            for f, H, S in g:
+                if H is not None and 0 <= f < len(path):
+                    stat[k, '撞上那刻對'] += path[f] == H
+        stat['標記擋拆'] += sum(1 for f, H, S in g if H is not None)
+    print(f'{len(labs)} 支')
+    for k in V:
+        a, b = score(preds[k], labs, fps, 0.4, False), score(preds[k], labs, fps, 1.0, False)
+        print(f'{k:8s}：沒持球者 {stat[k, "沒持球者"] / stat[k, "影格"]:.0%}、撞上那刻持球者對 {stat[k, "撞上那刻對"]}/{stat["標記擋拆"]}、'
+              f'擋拆 F1 ±0.4 秒 {a[3]:.3f}（{a[0]}/{a[1]}/{a[2]}）、±1 秒 {b[3]:.3f}')
+
+
 def apply_():
     n = 0
     for pk in clips():
@@ -135,4 +173,4 @@ def apply_():
 
 
 if __name__ == '__main__':
-    {'eval': eval_, 'apply': apply_}[sys.argv[1]]()
+    {'eval': eval_, 'apply': apply_, 'variants': eval_variants}[sys.argv[1]]()
