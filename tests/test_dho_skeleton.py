@@ -70,3 +70,10 @@ from dho_skeleton import assign_labels
 def test_one_label_matches_only_nearest_candidate():
     cands = [dict(giver=3, receiver=6, frame=62), dict(giver=3, receiver=6, frame=100)]
     assert assign_labels(cands, [(60, 3, 6, True)], 30) == [True, None]
+
+
+from dho_skeleton import labeled_clips_only
+
+
+def test_old_split_keeps_only_reviewed_clips():
+    assert labeled_clips_only(['screen_1', 'screen_2', 'screen_3'], {'screen_2': [(10, 1, 2, True)]}) == ['screen_2']

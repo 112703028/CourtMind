@@ -165,6 +165,7 @@ def clip_rows(pk, need, labels):
         f.update(approach_ft=h.get('approach_ft', float('nan')), v_giver=h.get('v_giver', float('nan')),
                  hold_b_s=h.get('hold_b_s', float('nan')), probe=probe.get(ek, float('nan')) if c['from_event'] else float('nan'),
                  from_screens=float(ek in scr), from_event=float(c['from_event']))
+        f['from_handoff'] = float(c['from_handoff'])     # 不當特徵（是缺值的代理）：只拿來切「換手候選」子集
         f = {k: (float('nan') if v is None else v) for k, v in f.items()}
         f['prod'] = any(p[1] == c['giver'] and p[2] == c['receiver'] and abs(p[0] - c['frame']) <= 0.5 * fps
                         or (c['event_frame'] is not None and p[1] == c['giver'] and p[2] == c['receiver']
@@ -175,6 +176,11 @@ def clip_rows(pk, need, labels):
     return rows
 
 
+def labeled_clips_only(clips, labels):
+    """設計：「同一支片段其他候選當不是」只適用有人看過的片段 → 舊片段只留有標記的（沒人看過的片段判出來的不該自動算錯）。"""
+    return [c for c in clips if labels.get(c)]
+
+
 def all_rows(split):
     """'old' = 舊 476 支（stubs/ball_batch + stubs/pose_hands）、'new' = 新來源 29 段（stubs/pipeline）。"""
     import glob
@@ -183,10 +189,11 @@ def all_rows(split):
     import dho_model
     if split == 'old':
         lab = dho_model.labels_old()
-        items = [(pk, [ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{c}_touch.pkl',
-                       ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl'], lab.get(c, []))
-                 for pk in sorted(glob.glob(str(ROOT / 'output_videos' / 'batch' / 'screen_*_events.pkl')))
-                 for c in [Path(pk).stem.replace('_events', '')]]
+        clips = labeled_clips_only(sorted(Path(pk).stem.replace('_events', '') for pk in
+                                          glob.glob(str(ROOT / 'output_videos' / 'batch' / 'screen_*_events.pkl'))), lab)
+        items = [(ROOT / 'output_videos' / 'batch' / f'{c}_events.pkl',
+                  [ROOT / 'stubs' / 'ball_batch' / f'{c}_ball.pkl', ROOT / 'stubs' / 'ball_batch' / f'{c}_touch.pkl',
+                   ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl'], lab[c]) for c in clips]
     else:
         lab = dho_model.labels_new()
         items = [(ROOT / 'output_videos' / 'pipeline' / f'{c}_events.pkl', [ROOT / 'stubs' / 'pipeline' / f'{c}_{k}.pkl'
@@ -257,13 +264,37 @@ def evaluate():
             print(f'{sname} {mname}：舊（交叉驗證，門檻 {t:.2f}）準 {prec:.0%}、抓到 {tpc}/{n_old}、F1 {f1:.2f}'
                   f'｜新 對 {int((pnw & y_new).sum())}、錯 {int((pnw & ~y_new).sum())}、抓到 {int((pnw & y_new).sum())}/{n_new}')
             if sname == '(d) 全部' and mname == '梯度提升':
-                imp = permutation_importance(m, X(old, cols), y_old, scoring='average_precision', n_repeats=10, random_state=0)
+                _ = None
+                imp = permutation_importance(m, X(old, cols), y_old, scoring='average_precision', n_repeats=10, random_state=0)   # 訓練資料上算（偏樂觀）
                 order = np.argsort(-imp.importances_mean)
                 print('   特徵重要性（舊資料、平均精確度下降）：' + '、'.join(f'{cols[i]} {imp.importances_mean[i]:+.3f}' for i in order))
+
+
+def evaluate_handoff_subset():
+    """審查第 3 點：現有特徵在換手候選以外都是缺值、正例幾乎都是換手候選 → 「缺值」本身洩漏答案。
+    只在換手候選（現有特徵都有值）裡比 (b) 現有 vs (d) 全部，看骨架有沒有額外資訊。"""
+    import warnings
+    from sklearn.model_selection import GroupKFold
+    warnings.filterwarnings('ignore')
+    W = ROOT / '.superpowers' / 'sdd' / '2026-11-24-skeleton-dho'
+    old = [r for r in pickle.load(open(W / 'rows_old.pkl', 'rb')) if r['label'] is not None and r['from_handoff']]
+    y = np.array([r['label'] is True for r in old]); g = np.array([r['clip'] for r in old])
+    X = lambda cols: np.array([[r[c] for c in cols] for r in old], dtype=float)
+    cols_b = ['approach_ft', 'v_giver', 'hold_b_s']
+    print('');
+    print(f'只看換手候選：{len(old)} 個（手遞手 {int(y.sum())}）')
+    for mname, mk in _models().items():
+        for sname, cols in (('(b) 現有', cols_b), ('(d) 現有 + 骨架', cols_b + SKEL)):
+            prob = np.zeros(len(old))
+            for tr, va in GroupKFold(n_splits=min(5, len(set(g)))).split(old, y, g):
+                m = mk(); m.fit(X(cols)[tr], y[tr]); prob[va] = m.predict_proba(X(cols)[va])[:, 1]
+            from sklearn.metrics import roc_auc_score, average_precision_score
+            print(f'  {sname} {mname}：AUC {roc_auc_score(y, prob):.3f}、平均精確度 {average_precision_score(y, prob):.3f}')
 
 
 if __name__ == '__main__':
     if sys.argv[1:2] == ['eval']:
         evaluate()
+        evaluate_handoff_subset()
     else:
         print(__doc__)
