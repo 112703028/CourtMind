@@ -166,6 +166,26 @@ def possession_path(d, s, tch, def_pen=3.0, min_touch=0.2, pose=None, w_pose=1.5
                    pose_h=pose_h, w_pose=w_pose, exempt=exempt)
 
 
+def refine(pkl, sam3_pkl, touch_pkl, pose_pkl):
+    """骨架算完後重算持球者（2026-11-24）：加手腕證據 + 連續持球 ≥ 0.5 秒不套用防守懲罰。
+    476 支：撞上那刻持球者對 453 → 459/508、沒持球者 29 → 24%、擋拆 F1 ±0.4 秒 0.791 → 0.792、±1 秒 0.859 → 0.862
+    （擋拆事件不重算）；新來源手遞手規則 12 → 13/27。舊的存 ball_acquisition_v1。"""
+    d = pickle.load(open(pkl, 'rb'))
+    s = pickle.load(open(sam3_pkl, 'rb'))['shot_sam3']
+    _, _, tch = pickle.load(open(touch_pkl, 'rb'))
+    pose = pickle.load(open(pose_pkl, 'rb'))
+    dd = dict(d)
+    dd['ball_acquisition'] = list(d.get('ball_acquisition_det') or d['ball_acquisition'])
+    if 'ball_acquisition_v1' not in d:
+        d['ball_acquisition_v1'] = list(d['ball_acquisition'])
+    d['ball_acquisition'] = possession_path(dd, s, tch, pose=pose, sustain_s=0.5)
+    d['ball_acquisition_src'] = 'sam3_viterbi_wrist'
+    pickle.dump(d, open(pkl, 'wb'))
+    n = len(d['ball_acquisition'])
+    print(f"持球者（加手腕）：沒持球者 {sum(1 for x in d['ball_acquisition_v1'] if x in (None, -1)) / n:.0%} → "
+          f"{sum(1 for x in d['ball_acquisition'] if x in (None, -1)) / n:.0%}")
+
+
 def detect_passes(path, fps, team, shots=(), max_air=1.5, shot_win=0.5, min_air=0.1, min_hold=0.2):
     """持球者路徑上「A 拿 → 球在空中 → B 拿」= 一次傳球。
     同隊 = pass（球幾乎沒離手 = handoff 手遞手）、不同隊 = turnover（抄截）；
@@ -438,5 +458,7 @@ if __name__ == '__main__':
         pass_report()
     elif sys.argv[1:2] == ['prep']:                 # python possession_sam3.py prep <影片> <ball.pkl> <touch.pkl>
         prep(*sys.argv[2:5])
+    elif sys.argv[1:2] == ['refine']:               # python possession_sam3.py refine <events.pkl> <sam3.pkl> <touch.pkl> <pose.pkl>
+        refine(*sys.argv[2:6])
     else:
         main()

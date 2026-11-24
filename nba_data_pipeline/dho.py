@@ -160,9 +160,11 @@ def add(pkl, sam3_pkl, touch_pkl, pose_pkl):
     d = pickle.load(open(pkl, 'rb'))
     s = pickle.load(open(sam3_pkl, 'rb'))['shot_sam3']
     _, _, tch = pickle.load(open(touch_pkl, 'rb'))
-    d['dho_hands'] = hands_feature(d, s, tch, pickle.load(open(pose_pkl, 'rb')))
+    pose = pickle.load(open(pose_pkl, 'rb'))
+    d['dho_hands'] = hands_feature(d, s, tch, pose)
+    d['dho_screens'] = from_screens(d, s, tch, pose)       # 方法 1：從擋拆出發（不經持球者 Viterbi）
     pickle.dump(d, open(pkl, 'wb'))
-    print(f'手遞手：候選 {len(d["dho_hands"])} 個、判定 {len(detect(d))} 個')
+    print(f'手遞手：候選 {len(d["dho_hands"])} 個、判定 {len(detect(d))} 個、從擋拆 {len(d["dho_screens"])} 個')
 
 
 def add_batch():
@@ -173,10 +175,10 @@ def add_batch():
                 ROOT / 'stubs' / 'pose_hands' / f'{c}.pkl']
         if all(x.exists() for x in need):
             d = pickle.load(open(pk, 'rb'))
-            if candidates(d):
-                d['dho_hands'] = hands_feature(d, pickle.load(open(need[0], 'rb'))['shot_sam3'],
-                                               pickle.load(open(need[1], 'rb'))[2], pickle.load(open(need[2], 'rb')))
-                pickle.dump(d, open(pk, 'wb')); n += 1
+            s_, t_, p_ = pickle.load(open(need[0], 'rb'))['shot_sam3'], pickle.load(open(need[1], 'rb'))[2], pickle.load(open(need[2], 'rb'))
+            d['dho_hands'] = hands_feature(d, s_, t_, p_)
+            d['dho_screens'] = from_screens(d, s_, t_, p_)
+            pickle.dump(d, open(pk, 'wb')); n += 1
     print(f'{n} 支寫入 dho_hands')
 
 
@@ -190,6 +192,11 @@ def with_dho(d):
     except (KeyError, TypeError, ValueError):
         return events
     fps = d['fps']
+    # 方法 1（從擋拆出發）的結果：對到的擋拆事件直接標手遞手（新來源 27 個：規則 13 + 方法 1 → 17，誤報 0）
+    for p in d.get('dho_screens') or []:
+        for e in events:
+            if e['screener_id'] == p['giver'] and e['handler_id'] == p['receiver'] and e['peak_frame'] == p['event_frame']:
+                e['dho'], e['dho_frame'] = True, p['frame']
     for p in found:
         ev = [e for e in events if e['screener_id'] == p['giver'] and e['handler_id'] == p['receiver']
               and abs(e['peak_frame'] - p['frame']) <= 1.5 * fps]

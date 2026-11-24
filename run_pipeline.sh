@@ -30,9 +30,11 @@ echo "== 3/3 傳球偵測（選球 + 碰球的人 → 每人手腕姿態 → 手
 ( set -e
   [ -f stubs/pipeline/${NAME}_touch.pkl ] || python -u nba_data_pipeline/possession_sam3.py prep "$V" stubs/pipeline/${NAME}_sam3.pkl stubs/pipeline/${NAME}_touch.pkl
   [ -f stubs/pipeline/${NAME}_pose.pkl ] || python -u nba_data_pipeline/pose_hands.py --ball_pkl stubs/pipeline/${NAME}_sam3.pkl --video "$V" --out stubs/pipeline/${NAME}_pose.pkl
+  # 骨架算完後重算持球者（加手腕 + 連續持球不罰；擋拆事件不重算）→ 傳球 / 手遞手 / 戰術分析用
+  python -u nba_data_pipeline/possession_sam3.py refine output_videos/pipeline/${NAME}_events.pkl stubs/pipeline/${NAME}_sam3.pkl     stubs/pipeline/${NAME}_touch.pkl stubs/pipeline/${NAME}_pose.pkl
   python -u nba_data_pipeline/pose_pass.py add output_videos/pipeline/${NAME}_events.pkl stubs/pipeline/${NAME}_sam3.pkl     stubs/pipeline/${NAME}_touch.pkl stubs/pipeline/${NAME}_pose.pkl "$V"
   # 手遞手的手腕證據（交接時兩人的手是不是同時在球上）→ events.pkl 的 dho_hands；tactics_tools / 主播讀 pkl 時判定手遞手
   python -u nba_data_pipeline/dho.py add output_videos/pipeline/${NAME}_events.pkl stubs/pipeline/${NAME}_sam3.pkl     stubs/pipeline/${NAME}_touch.pkl stubs/pipeline/${NAME}_pose.pkl
-) 2>&1 | grep -E "骨架|傳球|手遞手|^  (pass|turnover)|Error|Traceback" || true
+) 2>&1 | grep -E "骨架|傳球|手遞手|持球者|^  (pass|turnover)|Error|Traceback" || true
 python -c "import pickle,sys; sys.exit(0 if 'passes' in pickle.load(open('output_videos/pipeline/${NAME}_events.pkl','rb')) else 1)"   || echo "⚠ 傳球偵測沒成功（擋拆 / 投籃結果不受影響）"
 echo "✅ 完成：output_videos/pipeline/${NAME}.mp4、output_videos/pipeline/${NAME}_events.pkl"
