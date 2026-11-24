@@ -197,3 +197,73 @@ def all_rows(split):
             with contextlib.redirect_stdout(io.StringIO()):
                 rows += clip_rows(pk, need, lb)
     return rows
+
+
+# ── 交叉驗證比較 ─────────────────────────────────────────────────────────────
+
+def _models():
+    from sklearn.pipeline import make_pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    return {'梯度提升': lambda: HistGradientBoostingClassifier(max_depth=3, max_iter=150, learning_rate=0.05,
+                                                            class_weight='balanced', random_state=0),
+            '羅吉斯迴歸': lambda: make_pipeline(SimpleImputer(strategy='median', add_indicator=True), StandardScaler(),
+                                           LogisticRegression(C=0.3, class_weight='balanced', max_iter=2000))}
+
+
+def _pick_threshold(prob, y, min_prec=0.95):
+    """準確率 ≥ min_prec 下抓到最多的門檻（沒有的話取 F1 最高）。→ (門檻, 準確率, 抓到數, F1)"""
+    best, best_f1 = None, None
+    for t in np.arange(0.05, 0.96, 0.05):
+        p = prob >= t
+        tp = int((p & y).sum()); fp = int((p & ~y).sum()); fn = int((~p & y).sum())
+        prec = tp / max(1, tp + fp); f1 = 2 * tp / max(1, 2 * tp + fp + fn)
+        if prec >= min_prec and (best is None or tp > best[2]):
+            best = (float(t), prec, tp, f1)
+        if best_f1 is None or f1 > best_f1[3]:
+            best_f1 = (float(t), prec, tp, f1)
+    return best or best_f1
+
+
+def evaluate():
+    import warnings
+    from sklearn.model_selection import GroupKFold
+    from sklearn.inspection import permutation_importance
+    warnings.filterwarnings('ignore')
+    W = ROOT / '.superpowers' / 'sdd' / '2026-11-24-skeleton-dho'
+    cache = {sp: W / f'rows_{sp}.pkl' for sp in ('old', 'new')}
+    rows = {sp: (pickle.load(open(cache[sp], 'rb')) if cache[sp].exists() else all_rows(sp)) for sp in cache}
+    old = [r for r in rows['old'] if r['label'] is not None]
+    new = [r for r in rows['new'] if r['label'] is not None]
+    y_old = np.array([r['label'] is True for r in old]); g_old = np.array([r['clip'] for r in old])
+    y_new = np.array([r['label'] is True for r in new])
+    X = lambda rs, cols: np.array([[r[c] for c in cols] for r in rs], dtype=float)
+    n_old, n_new = int(y_old.sum()), 27
+    print(f'舊 476 支：候選 {len(old)}（手遞手 {n_old}）；新來源：候選 {len(new)}（手遞手 {int(y_new.sum())}，全部 {n_new} 個）')
+    pa = np.array([r['prod'] for r in old]); tp = int((pa & y_old).sum()); fp = int((pa & ~y_old).sum())
+    pn = np.array([r['prod'] for r in new]); tpn = int((pn & y_new).sum()); fpn = int((pn & ~y_new).sum())
+    print(f'(a) 現在上線的做法：舊 準 {tp}/{tp + fp}、抓到 {tp}/{n_old}、F1 {2 * tp / max(1, tp + fp + n_old):.2f}｜新 對 {tpn}、錯 {fpn}、抓到 {tpn}/{n_new}')
+    sets = {'(b) 現有特徵': EXIST, '(c) 骨架特徵': SKEL, '(d) 全部': EXIST + SKEL}
+    for mname, mk in _models().items():
+        for sname, cols in sets.items():
+            prob = np.zeros(len(old))
+            for tr, va in GroupKFold(n_splits=5).split(old, y_old, g_old):
+                m = mk(); m.fit(X(old, cols)[tr], y_old[tr]); prob[va] = m.predict_proba(X(old, cols)[va])[:, 1]
+            t, prec, tpc, f1 = _pick_threshold(prob, y_old)
+            m = mk(); m.fit(X(old, cols), y_old)
+            pnw = m.predict_proba(X(new, cols))[:, 1] >= t
+            print(f'{sname} {mname}：舊（交叉驗證，門檻 {t:.2f}）準 {prec:.0%}、抓到 {tpc}/{n_old}、F1 {f1:.2f}'
+                  f'｜新 對 {int((pnw & y_new).sum())}、錯 {int((pnw & ~y_new).sum())}、抓到 {int((pnw & y_new).sum())}/{n_new}')
+            if sname == '(d) 全部' and mname == '梯度提升':
+                imp = permutation_importance(m, X(old, cols), y_old, scoring='average_precision', n_repeats=10, random_state=0)
+                order = np.argsort(-imp.importances_mean)
+                print('   特徵重要性（舊資料、平均精確度下降）：' + '、'.join(f'{cols[i]} {imp.importances_mean[i]:+.3f}' for i in order))
+
+
+if __name__ == '__main__':
+    if sys.argv[1:2] == ['eval']:
+        evaluate()
+    else:
+        print(__doc__)
