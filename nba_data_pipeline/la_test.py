@@ -20,6 +20,7 @@ from transformers import AutoModel, AutoTokenizer, AutoProcessor
 ROOT = Path(__file__).parent.parent
 D = ROOT / 'stubs' / 'la_test'
 MODEL = 'nvidia/LocateAnything-3B'
+MAX_SIDE = 1280
 PROMPTS = {'holder': 'Locate a single instance that matches the following description: the basketball player who is holding the basketball.',
            'ball': 'Locate a single instance that matches the following description: the basketball.'}
 
@@ -59,10 +60,14 @@ def main():
         if m['img'] in done:
             continue
         im = Image.open(D / 'frames' / m['img']).convert('RGB')
+        W0, H0 = im.size
+        if max(W0, H0) > MAX_SIDE:                     # 1920×1080 原圖：視覺編碼器注意力吃 22 GB → OOM；輸出是 0~1000 相對座標，換回原圖不受影響
+            sc = MAX_SIDE / max(W0, H0)
+            im = im.resize((round(W0 * sc), round(H0 * sc)), Image.BICUBIC)
         r = {}
         for key, q in PROMPTS.items():
             a = w.ask(im, q)
-            r[key] = {'answer': a, 'boxes': boxes(a, im.width, im.height)}
+            r[key] = {'answer': a, 'boxes': boxes(a, W0, H0)}
         done[m['img']] = r
         if k % 10 == 0:
             json.dump(done, open(out_p, 'w'))

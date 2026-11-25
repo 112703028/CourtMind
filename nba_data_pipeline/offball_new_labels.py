@@ -4,7 +4,7 @@ offball_new_labels.py — 使用者標的新來源 105 段（output_videos/new_l
 標記格式：影格:#掩護者>#被掩護的人，後面可加 dho（手遞手）/ 假擋；多個用逗號或分號隔開。
 持球 / 無球：被掩護的人在**撞上前** 0.5 秒內有沒有被判成持球者（events.pkl 的 ball_acquisition）。
   原本看前後 0.5 秒 → 掩護完馬上接球的無球掩護（Pin-down 跑出來接球）被算成持球：持球 66 / 無球 56 → 改成撞上前：28 / 94。
-  持球者用的是推論時的版本（新片段還沒做手腕修正），仍不完全準。
+  持球者 2026-11-26 已用修正版重算（possession_sam3.refine）→ 持球 26 / 無球 96 / 手遞手 11。
 備註「#4 和 #10 後來交換標籤」（offball_002）等只記下，不自動處理。
 
 用法：python nba_data_pipeline/offball_new_labels.py
