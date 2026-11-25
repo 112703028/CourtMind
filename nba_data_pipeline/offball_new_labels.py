@@ -2,7 +2,9 @@
 offball_new_labels.py — 使用者標的新來源 105 段（output_videos/new_label/offball/label.csv）：整理標記 + 持球 / 無球分類 + 現在的 ScreenNet 抓到多少（2026-11-25）。
 
 標記格式：影格:#掩護者>#被掩護的人，後面可加 dho（手遞手）/ 假擋；多個用逗號或分號隔開。
-持球 / 無球：被掩護的人在撞上前後 0.5 秒內有沒有被判成持球者（events.pkl 的 ball_acquisition）。
+持球 / 無球：被掩護的人在**撞上前** 0.5 秒內有沒有被判成持球者（events.pkl 的 ball_acquisition）。
+  原本看前後 0.5 秒 → 掩護完馬上接球的無球掩護（Pin-down 跑出來接球）被算成持球：持球 66 / 無球 56 → 改成撞上前：28 / 94。
+  持球者用的是推論時的版本（新片段還沒做手腕修正），仍不完全準。
 備註「#4 和 #10 後來交換標籤」（offball_002）等只記下，不自動處理。
 
 用法：python nba_data_pipeline/offball_new_labels.py
@@ -44,7 +46,7 @@ def main():
             if fake:
                 stat['假擋'] += 1
                 continue
-            win = range(max(0, f - int(0.5 * fps)), min(len(ba), f + int(0.5 * fps) + 1))
+            win = range(max(0, f - int(0.5 * fps)), min(len(ba), f + 1))
             kind = '手遞手' if dho else ('持球' if any(ba[g] == H for g in win) else '無球')
             stat[kind] += 1
             hit_s = any(es == S and abs(ef - f) <= fps for ef, es, eh in ev)
